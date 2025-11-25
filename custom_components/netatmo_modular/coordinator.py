@@ -74,31 +74,28 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             data = await self.api.async_get_full_data()
             await self._process_data(data)
-            
-            # Save updated tokens if they changed
             await self._save_tokens()
-            
             return data
 
         except NetatmoAuthError as err:
-            _LOGGER.error("Authentication error: %s", err)
             raise UpdateFailed(f"Authentication error: {err}") from err
-
         except NetatmoApiError as err:
-            _LOGGER.error("API error: %s", err)
             raise UpdateFailed(f"API error: {err}") from err
-
         except Exception as err:
-            _LOGGER.exception("Unexpected error fetching Netatmo data")
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
     async def _process_data(self, data: dict[str, Any]) -> None:
         """Process the fetched data into structured dictionaries."""
-        self._homes = {}
-        self._rooms = {}
-        self._modules = {}
+        self._homes.clear()
+        self._rooms.clear()
+        self._modules.clear()
 
-        for home in data.get("homes", []):
+        homes_list = data.get("homes", [])
+        if not homes_list:
+            _LOGGER.debug("No homes found in data")
+            return
+
+        for home in homes_list:
             home_id = home.get("id")
             if not home_id:
                 continue
@@ -107,105 +104,72 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._homes[home_id] = {
                 "id": home_id,
                 "name": home_name,
-                "altitude": home.get("altitude"),
-                "coordinates": home.get("coordinates"),
-                "country": home.get("country"),
-                "timezone": home.get("timezone"),
-                "therm_setpoint_default_duration": home.get("therm_setpoint_default_duration"),
                 "therm_mode": home.get("status", {}).get("therm_mode"),
                 "rooms": [],
                 "modules": [],
             }
 
-            # Process rooms
+            # Optimisation: Création des dictionnaires de statut une seule fois
             status_rooms = {r["id"]: r for r in home.get("status", {}).get("rooms", [])}
+            status_modules = {m["id"]: m for m in home.get("status", {}).get("modules", [])}
 
+            # Process rooms
             for room in home.get("rooms", []):
                 room_id = room.get("id")
                 if not room_id:
                     continue
 
-                # Merge room definition with status
                 room_status = status_rooms.get(room_id, {})
-
-                room_data = {
+                
+                self._rooms[room_id] = {
                     "id": room_id,
                     "home_id": home_id,
                     "home_name": home_name,
                     "name": room.get("name", f"Room {room_id}"),
                     "type": room.get("type"),
                     "module_ids": room.get("module_ids", []),
-                    # Status data
                     "therm_measured_temperature": room_status.get("therm_measured_temperature"),
                     "therm_setpoint_temperature": room_status.get("therm_setpoint_temperature"),
                     "therm_setpoint_mode": room_status.get("therm_setpoint_mode"),
-                    "therm_setpoint_fp": room_status.get("therm_setpoint_fp"), # <--- LIGNE AJOUTÉE (CRITIQUE)
-                    "therm_setpoint_start_time": room_status.get("therm_setpoint_start_time"),
-                    "therm_setpoint_end_time": room_status.get("therm_setpoint_end_time"),
+                    "therm_setpoint_fp": room_status.get("therm_setpoint_fp"),
                     "heating_power_request": room_status.get("heating_power_request"),
                     "anticipating": room_status.get("anticipating"),
                     "open_window": room_status.get("open_window"),
                 }
-
-                self._rooms[room_id] = room_data
                 self._homes[home_id]["rooms"].append(room_id)
 
             # Process modules
-            status_modules = {m["id"]: m for m in home.get("status", {}).get("modules", [])}
-
             for module in home.get("modules", []):
                 module_id = module.get("id")
                 if not module_id:
                     continue
 
-                # Merge module definition with status
                 module_status = status_modules.get(module_id, {})
-
-                module_data = {
+                
+                self._modules[module_id] = {
                     "id": module_id,
                     "home_id": home_id,
-                    "home_name": home_name,
                     "name": module.get("name", f"Module {module_id}"),
                     "type": module.get("type"),
-                    "setup_date": module.get("setup_date"),
-                    "modules_bridged": module.get("modules_bridged", []),
-                    "room_id": module.get("room_id"),
-                    # Status data
-                    "boiler_status": module_status.get("boiler_status"),
-                    "boiler_valve_comfort_boost": module_status.get("boiler_valve_comfort_boost"),
-                    "battery_state": module_status.get("battery_state"),
                     "battery_level": module_status.get("battery_level"),
                     "rf_strength": module_status.get("rf_strength"),
                     "wifi_strength": module_status.get("wifi_strength"),
+                    "boiler_status": module_status.get("boiler_status"),
                     "reachable": module_status.get("reachable", True),
-                    "firmware": module_status.get("firmware"),
                 }
-
-                self._modules[module_id] = module_data
                 self._homes[home_id]["modules"].append(module_id)
-
-        _LOGGER.debug(
-            "Processed %d homes, %d rooms, %d modules",
-            len(self._homes),
-            len(self._rooms),
-            len(self._modules),
-        )
 
     async def _save_tokens(self) -> None:
         """Save updated tokens to config entry."""
-        new_data = {
-            **self.config_entry.data,
-            "token": {
-                "access_token": self.api.access_token,
-                "refresh_token": self.api.refresh_token,
-                "expires_at": self.api.token_expires_at.isoformat() if self.api.token_expires_at else None,
-            },
+        new_token_data = {
+            "access_token": self.api.access_token,
+            "refresh_token": self.api.refresh_token,
+            "expires_at": self.api.token_expires_at.isoformat() if self.api.token_expires_at else None,
         }
-
-        self.hass.config_entries.async_update_entry(
-            self.config_entry,
-            data=new_data,
-        )
+        
+        if self.config_entry.data.get("token") != new_token_data:
+            new_data = {**self.config_entry.data, "token": new_token_data}
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
 
     async def async_set_room_mode(
         self,
@@ -214,16 +178,14 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temp: float | None = None,
         fp: str | None = None,
     ) -> bool:
-        """Set room thermostat mode using the new setstate API."""
+        """Set room thermostat mode."""
         room = self.get_room(room_id)
         if not room:
-            _LOGGER.error("Room %s not found", room_id)
+            _LOGGER.error("Cannot set mode: Room %s not found", room_id)
             return False
 
-        home_id = room["home_id"]
-
         success = await self.api.async_set_state(
-            home_id=home_id,
+            home_id=room["home_id"],
             room_id=room_id,
             mode=mode,
             temp=temp,
@@ -231,19 +193,6 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if success:
-            # Refresh data
             await self.async_request_refresh()
-
-        return success
-
-    async def async_set_home_mode(self, home_id: str, mode: str) -> bool:
-        """Set home thermostat mode."""
-        success = await self.api.async_set_therm_mode(
-            home_id=home_id,
-            mode=mode,
-        )
-
-        if success:
-            await self.async_request_refresh()
-
+        
         return success

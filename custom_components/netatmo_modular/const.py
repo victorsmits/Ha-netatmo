@@ -3,8 +3,9 @@ from typing import Final
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT,
+    PRESET_ECO,
     PRESET_HOME,
-    PRESET_SLEEP, # On importe SLEEP pour le lit
+    PRESET_SLEEP,
 )
 
 DOMAIN: Final = "netatmo_modular"
@@ -46,31 +47,35 @@ API_SET_STATE: Final = f"{API_BASE_URL}/setstate"
 UPDATE_INTERVAL: Final = 300
 TOKEN_REFRESH_BUFFER: Final = 600
 
-# Netatmo thermostat modes mapping
-NETATMO_TO_HA_HVAC_MODE: Final = {
-    "schedule": "auto",
-    "away": "off",
-    "hg": "off",
-    "frost_guard": "off",
-    "manual": "heat",
-    "off": "off",
-    "max": "heat",
-}
-
-HA_TO_NETATMO_HVAC_MODE: Final = {
-    "auto": "schedule",
-    "heat": "manual",
-    "off": "away",
-}
-
-# Netatmo preset modes (Interne)
+# Netatmo internal constants
 NETATMO_PRESET_COMFORT: Final = "comfort"
 NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
+NETATMO_PRESET_HG: Final = "hg"
 NETATMO_PRESET_AWAY: Final = "away"
 NETATMO_PRESET_SCHEDULE: Final = "schedule"
+NETATMO_PRESET_ECO: Final = "eco"
 
-# HA preset modes mapping
-# On utilise SLEEP (Lit) pour le Hors-Gel
+# Mappings
+# Netatmo -> HA Preset
+NETATMO_TO_PRESET_MAP: Final[dict[str, str]] = {
+    NETATMO_PRESET_COMFORT: PRESET_COMFORT,
+    NETATMO_PRESET_FROST_GUARD: PRESET_SLEEP, # Mappé sur Lit
+    NETATMO_PRESET_HG: PRESET_SLEEP,          # Mappé sur Lit
+    NETATMO_PRESET_AWAY: PRESET_AWAY,
+    NETATMO_PRESET_SCHEDULE: PRESET_HOME,     # Mappé sur Maison
+    NETATMO_PRESET_ECO: PRESET_AWAY,          # Eco redirigé vers Away
+}
+
+# HA Preset -> Netatmo Command
+PRESET_TO_NETATMO_MAP: Final[dict[str, str]] = {
+    PRESET_HOME: NETATMO_PRESET_SCHEDULE,
+    PRESET_AWAY: NETATMO_PRESET_AWAY,
+    PRESET_SLEEP: NETATMO_PRESET_FROST_GUARD,
+    PRESET_COMFORT: NETATMO_PRESET_COMFORT,
+    PRESET_ECO: NETATMO_PRESET_FROST_GUARD, # Sécurité si Eco est appelé
+}
+
+# HA List of presets
 PRESET_MODES: Final = [
     PRESET_COMFORT,
     PRESET_SLEEP, 
@@ -86,21 +91,6 @@ DEVICE_TYPE_OTH: Final = "OTH"
 DEVICE_TYPE_OTM: Final = "OTM"
 DEVICE_TYPE_BNS: Final = "BNS"
 
-# Supported device types
-SUPPORTED_CLIMATE_TYPES: Final = [
-    DEVICE_TYPE_THERMOSTAT,
-    DEVICE_TYPE_VALVE,
-    DEVICE_TYPE_PLUG,
-    DEVICE_TYPE_OTH,
-    DEVICE_TYPE_OTM,
-    DEVICE_TYPE_BNS,
-]
-
-# Temperature limits
-MIN_TEMP: Final = 7
-MAX_TEMP: Final = 30
-TEMP_STEP: Final = 0.5
-
 # Attributes
 ATTR_HOME_ID: Final = "home_id"
 ATTR_ROOM_ID: Final = "room_id"
@@ -111,3 +101,9 @@ ATTR_BOILER_STATUS: Final = "boiler_status"
 ATTR_HEATING_POWER_REQUEST: Final = "heating_power_request"
 ATTR_ANTICIPATING: Final = "anticipating"
 ATTR_OPEN_WINDOW: Final = "open_window"
+ATTR_FIL_PILOTE: Final = "fil_pilote"
+
+# Temperature limits
+MIN_TEMP: Final = 7
+MAX_TEMP: Final = 30
+TEMP_STEP: Final = 0.5
