@@ -1,6 +1,5 @@
 """Constants for Netatmo Modular integration."""
 from typing import Final
-from homeassistant.const import Platform
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT,
@@ -77,7 +76,7 @@ HA_TO_NETATMO_HVAC_MODE: Final = {
     "off": "away",
 }
 
-# Netatmo preset modes (Interne)
+# Netatmo preset modes
 NETATMO_PRESET_COMFORT: Final = "comfort"
 NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
 NETATMO_PRESET_AWAY: Final = "away"
@@ -119,11 +118,16 @@ DEVICE_TYPE_OTM: Final = "OTM"
 DEVICE_TYPE_BNS: Final = "BNS"
 
 # Light Types (Legrand/Netatmo)
-DEVICE_TYPE_LIGHT: Final = "NLL"      # Interrupteur lumière
-DEVICE_TYPE_DIMMER: Final = "NLF"     # Variateur
-DEVICE_TYPE_DIMMER2: Final = "NLFN"   # Variateur avec neutre
-DEVICE_TYPE_MICROMODULE: Final = "NLLM" # Micromodule
+DEVICE_TYPE_LIGHT: Final = "NLL"        # Interrupteur lumière
+DEVICE_TYPE_DIMMER: Final = "NLF"       # Variateur avec neutre
+DEVICE_TYPE_DIMMER2: Final = "NLFN"     # Variateur avec neutre récent
+DEVICE_TYPE_DIMMER_NO_NEUTRAL: Final = "NLV" # Variateur sans neutre
+DEVICE_TYPE_DIMMER_MICRO: Final = "NLLV"     # Micromodule Variateur
+DEVICE_TYPE_MICROMODULE: Final = "NLLM" # Micromodule On/Off
+DEVICE_TYPE_MICROMODULE_2: Final = "NLM" # Micromodule
+DEVICE_TYPE_DIMMER_FLAT: Final = "NLFE" # <--- VOTRE TYPE (Ajouté)
 DEVICE_TYPE_CABLE_OUTLET: Final = "NLC" # Sortie de cable
+DEVICE_TYPE_PLUG_LIGHT: Final = "NLP"   # Prise
 
 # Supported Lists
 SUPPORTED_CLIMATE_TYPES: Final = [
@@ -139,8 +143,23 @@ SUPPORTED_LIGHT_TYPES: Final = [
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_DIMMER,
     DEVICE_TYPE_DIMMER2,
+    DEVICE_TYPE_DIMMER_NO_NEUTRAL,
+    DEVICE_TYPE_DIMMER_MICRO,
     DEVICE_TYPE_MICROMODULE,
-    DEVICE_TYPE_CABLE_OUTLET,
+    DEVICE_TYPE_MICROMODULE_2,
+    DEVICE_TYPE_DIMMER_FLAT, # Ajouté
+    #DEVICE_TYPE_CABLE_OUTLET,
+    DEVICE_TYPE_PLUG_LIGHT,
+]
+
+# List of Dimmer Types (pour l'affichage slider)
+# C'est ici qu'on force l'affichage en variateur
+DIMMER_TYPES: Final = [
+    DEVICE_TYPE_DIMMER,
+    DEVICE_TYPE_DIMMER2,
+    DEVICE_TYPE_DIMMER_NO_NEUTRAL,
+    DEVICE_TYPE_DIMMER_MICRO,
+    DEVICE_TYPE_DIMMER_FLAT, # <--- NLFE ajouté ici = Variateur activé !
 ]
 
 # Attributes

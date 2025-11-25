@@ -120,7 +120,6 @@ class NetatmoApiClient:
 
     async def async_get_full_data(self) -> dict[str, Any]:
         """Get complete data: homes + status for each home."""
-        # 1. Get Homes Data (Structure)
         result = await self._async_request("GET", API_HOMES_DATA)
         homes_data = result.get("body", {})
         homes = homes_data.get("homes", [])
@@ -130,7 +129,6 @@ class NetatmoApiClient:
             "user": homes_data.get("user", {}),
         }
 
-        # 2. Get Home Status (States) for each home
         for home in homes:
             home_id = home.get("id")
             if not home_id:
@@ -174,13 +172,15 @@ class NetatmoApiClient:
         module_id: str,
         on: bool | None = None,
         brightness: int | None = None,
+        bridge_id: str | None = None, # <--- PARAMÈTRE AJOUTÉ
     ) -> bool:
         """Set module state (Light/Plug)."""
         module_data = {"id": module_id}
         
-        # Pour les modules, il faut souvent utiliser le bridge (pont) si c'est du Zigbee,
-        # mais l'API setstate standard accepte directement l'ID du module dans 'modules'.
-        
+        # Pour les appareils Zigbee, on ajoute le pont si connu
+        if bridge_id:
+            module_data["bridge"] = bridge_id
+
         if on is not None:
             module_data["on"] = on
         if brightness is not None:

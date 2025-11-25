@@ -107,6 +107,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status_rooms = {r["id"]: r for r in home.get("status", {}).get("rooms", [])}
             status_modules = {m["id"]: m for m in home.get("status", {}).get("modules", [])}
 
+            # Process rooms
             for room in home.get("rooms", []):
                 room_id = room.get("id")
                 if not room_id:
@@ -129,31 +130,35 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
                 self._homes[home_id]["rooms"].append(room_id)
 
+            # Process modules
             for module in home.get("modules", []):
                 module_id = module.get("id")
+                module_type = module.get("type")
+                
                 if not module_id:
                     continue
+                
                 module_status = status_modules.get(module_id, {})
+                
                 self._modules[module_id] = {
                     "id": module_id,
                     "home_id": home_id,
                     "name": module.get("name", f"Module {module_id}"),
-                    "type": module.get("type"),
+                    "type": module_type,
+                    "bridge": module.get("bridge"), # <--- CAPTURE DU PONT (CRITIQUE)
                     "battery_level": module_status.get("battery_level"),
                     "rf_strength": module_status.get("rf_strength"),
                     "wifi_strength": module_status.get("wifi_strength"),
                     "boiler_status": module_status.get("boiler_status"),
                     "reachable": module_status.get("reachable", True),
-                    # --- POUR LES LUMIÈRES ---
                     "on": module_status.get("on"),
                     "brightness": module_status.get("brightness"),
-                    "power": module_status.get("power"), # Pour les prises
+                    "power": module_status.get("power"),
                 }
                 self._homes[home_id]["modules"].append(module_id)
 
     async def _save_tokens(self) -> None:
         """Save updated tokens."""
-        # (Code inchangé pour la sauvegarde)
         new_token = {
             "access_token": self.api.access_token,
             "refresh_token": self.api.refresh_token,
@@ -164,13 +169,11 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.config_entry, data={**self.config_entry.data, "token": new_token}
             )
 
-    # Méthode existante pour le chauffage (inchangée)
     async def async_set_room_mode(self, room_id: str, mode: str, temp: float = None, fp: str = None) -> bool:
         room = self.get_room(room_id)
         if not room: return False
         success = await self.api.async_set_state(room["home_id"], room_id, mode, temp, fp)
         if success: 
-            # Optimistic update pour le chauffage
             if mode == "manual":
                 self._rooms[room_id]["therm_setpoint_mode"] = "manual"
                 if fp: self._rooms[room_id]["therm_setpoint_fp"] = fp
@@ -182,16 +185,21 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
         return success
 
-    # --- NOUVELLE MÉTHODE POUR LES LUMIÈRES ---
     async def async_set_light_state(self, module_id: str, on: bool = None, brightness: int = None) -> bool:
         """Set light state with optimistic update."""
         module = self.get_module(module_id)
         if not module: return False
 
-        success = await self.api.async_set_module_state(module["home_id"], module_id, on, brightness)
+        # On passe le paramètre bridge si disponible
+        success = await self.api.async_set_module_state(
+            home_id=module["home_id"], 
+            module_id=module_id, 
+            on=on, 
+            brightness=brightness,
+            bridge_id=module.get("bridge") # <--- ENVOI DU PONT A L'API
+        )
         
         if success:
-            # Optimistic UI
             if on is not None:
                 self._modules[module_id]["on"] = on
             if brightness is not None:
