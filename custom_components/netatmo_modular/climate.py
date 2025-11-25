@@ -10,12 +10,11 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-# On importe les constantes standards
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT,
-    PRESET_ECO,
     PRESET_HOME,
+    PRESET_SLEEP, # Import du Lit
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
@@ -41,18 +40,18 @@ from .coordinator import NetatmoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Mapping : Netatmo -> Standard HA (pour avoir les icônes)
+# Mapping : Frost Guard -> SLEEP (Lit)
 NETATMO_TO_PRESET = {
     "manual": None,
     "max": PRESET_COMFORT,
-    "frost_guard": PRESET_ECO,  # Frost Guard devient ECO (Feuille)
-    "hg": PRESET_ECO,
+    "frost_guard": PRESET_SLEEP,
+    "hg": PRESET_SLEEP,
     "off": PRESET_AWAY,
-    "schedule": PRESET_HOME,    # Schedule devient HOME (Maison)
+    "schedule": PRESET_HOME,
     "home": PRESET_HOME,
     "away": PRESET_AWAY,
     "comfort": PRESET_COMFORT,
-    "eco": PRESET_AWAY,         # Le vrai Eco n'existe pas, on le map sur Away
+    "eco": PRESET_AWAY,
 }
 
 async def async_setup_entry(
@@ -166,7 +165,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         fp_mode = self._room.get("therm_setpoint_fp")
 
         if setpoint_mode == "schedule":
-            return PRESET_HOME # Mappé sur HOME pour l'icone Maison
+            return PRESET_HOME
 
         if setpoint_mode == "manual":
             if fp_mode == "comfort":
@@ -174,12 +173,12 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             elif fp_mode == "away":
                 return PRESET_AWAY
             elif fp_mode in ("frost_guard", "hg"):
-                return PRESET_ECO # Mappé sur ECO pour l'icone Feuille
+                return PRESET_SLEEP # Mappé sur SLEEP (Lit)
             elif fp_mode == "eco":
                 return PRESET_AWAY
         
         if setpoint_mode in ("frost_guard", "hg"):
-            return PRESET_ECO
+            return PRESET_SLEEP
         if setpoint_mode == "away":
             return PRESET_AWAY
 
@@ -201,28 +200,27 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         pass
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        # Ici on reçoit le preset HA (ex: 'home' ou 'eco') et on doit envoyer le bon ordre à Netatmo
-        if preset_mode == PRESET_HOME: # Si on clique sur Maison (Planning)
+        if preset_mode == PRESET_HOME:
             await self.coordinator.async_set_room_mode(self._room_id, mode="schedule")
         
-        elif preset_mode == PRESET_AWAY: # Si on clique sur Absent
+        elif preset_mode == PRESET_AWAY:
             await self.coordinator.async_set_room_mode(self._room_id, mode="manual", fp="away")
         
-        elif preset_mode == PRESET_ECO: # Si on clique sur Eco (Hors-gel)
+        elif preset_mode == PRESET_SLEEP: # Clic sur le Lit -> Hors-gel
             await self.coordinator.async_set_room_mode(self._room_id, mode="manual", fp="frost_guard")
         
-        elif preset_mode == PRESET_COMFORT: # Si on clique sur Confort
+        elif preset_mode == PRESET_COMFORT:
             await self.coordinator.async_set_room_mode(self._room_id, mode="manual", fp="comfort")
         
         await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode == HVACMode.OFF:
-            await self.async_set_preset_mode(PRESET_ECO) # Off lance Hors-gel
+            await self.async_set_preset_mode(PRESET_SLEEP) # Off lance Hors-gel
         elif hvac_mode == HVACMode.AUTO:
-            await self.async_set_preset_mode(PRESET_HOME) # Auto lance Planning
+            await self.async_set_preset_mode(PRESET_HOME)
         elif hvac_mode == HVACMode.HEAT:
-            await self.async_set_preset_mode(PRESET_COMFORT) # Heat lance Confort
+            await self.async_set_preset_mode(PRESET_COMFORT)
 
     async def async_turn_on(self) -> None:
         await self.async_set_hvac_mode(HVACMode.AUTO)

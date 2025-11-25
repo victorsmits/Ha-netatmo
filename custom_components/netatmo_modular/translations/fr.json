@@ -6,10 +6,10 @@
         "state_attributes": {
           "preset_mode": {
             "state": {
-              "schedule": "Planning",
-              "frost_guard": "Hors-gel",
-              "away": "Absent",
               "comfort": "Confort",
+              "sleep": "Hors-gel",
+              "away": "Absent",
+              "home": "Planning",
               "manual": "Manuel"
             }
           }

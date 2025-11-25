@@ -1,11 +1,10 @@
 """Constants for Netatmo Modular integration."""
 from typing import Final
-# Import des constantes pour avoir les icônes natives (Backend Trick)
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT,
-    PRESET_ECO,
     PRESET_HOME,
+    PRESET_SLEEP, # On importe SLEEP pour le lit
 )
 
 DOMAIN: Final = "netatmo_modular"
@@ -19,32 +18,20 @@ CONF_EXTERNAL_URL: Final = "external_url"
 OAUTH2_AUTHORIZE: Final = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN: Final = "https://api.netatmo.com/oauth2/token"
 
-# --- VOTRE LISTE COMPLÈTE DES SCOPES (Restaurée) ---
+# Scopes
 SCOPES: Final = [
-    "read_station",
-    "read_magellan",
-    "write_magellan",
-    "read_bubendorff",
-    "write_bubendorff",
-    "read_smarther",
-    "write_smarther",
     "read_thermostat",
     "write_thermostat",
+    "read_station",
     "read_camera",
     "write_camera",
     "access_camera",
     "read_doorbell",
     "access_doorbell",
-    "read_mx",
-    "write_mx",
     "read_presence",
-    "write_presence",
     "access_presence",
     "read_homecoach",
-    "read_carbonmonoxidedetector",
     "read_smokedetector",
-    "read_mhs1",
-    "write_mhs1"
 ]
 
 # API Endpoints
@@ -56,8 +43,8 @@ API_SET_THERM_MODE: Final = f"{API_BASE_URL}/setthermmode"
 API_SET_STATE: Final = f"{API_BASE_URL}/setstate"
 
 # Update intervals
-UPDATE_INTERVAL: Final = 300  # 5 minutes
-TOKEN_REFRESH_BUFFER: Final = 600  # Refresh 10 min before expiry
+UPDATE_INTERVAL: Final = 300
+TOKEN_REFRESH_BUFFER: Final = 600
 
 # Netatmo thermostat modes mapping
 NETATMO_TO_HA_HVAC_MODE: Final = {
@@ -82,14 +69,11 @@ NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
 NETATMO_PRESET_AWAY: Final = "away"
 NETATMO_PRESET_SCHEDULE: Final = "schedule"
 
-# HA preset modes mapping (Pour les icônes)
-# Confort = Comfort
-# Hors-gel = ECO (Icône Feuille)
-# Absent = AWAY (Icône Bonhomme)
-# Planning = HOME (Icône Maison)
+# HA preset modes mapping
+# On utilise SLEEP (Lit) pour le Hors-Gel
 PRESET_MODES: Final = [
     PRESET_COMFORT,
-    PRESET_ECO, 
+    PRESET_SLEEP, 
     PRESET_AWAY,
     PRESET_HOME,
 ]
@@ -102,7 +86,7 @@ DEVICE_TYPE_OTH: Final = "OTH"
 DEVICE_TYPE_OTM: Final = "OTM"
 DEVICE_TYPE_BNS: Final = "BNS"
 
-# Supported device types for climate entities
+# Supported device types
 SUPPORTED_CLIMATE_TYPES: Final = [
     DEVICE_TYPE_THERMOSTAT,
     DEVICE_TYPE_VALVE,

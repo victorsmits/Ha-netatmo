@@ -6,56 +6,55 @@
         "state_attributes": {
           "preset_mode": {
             "state": {
-              "schedule": "Schedule",
-              "frost_guard": "Frost Guard",
-              "away": "Away",
-              "comfort": "Comfort",
-              "manual": "Manual"
+              "comfort": "Confort",
+              "sleep": "Hors-gel",
+              "away": "Absent",
+              "home": "Planning",
+              "manual": "Manuel"
             }
           }
         }
       }
     },
     "sensor": {
-      "temperature": { "name": "Temperature" },
-      "target_temperature": { "name": "Target temperature" },
-      "heating_power": { "name": "Heating power" },
-      "setpoint_mode": { "name": "Setpoint mode" },
-      "battery_level": { "name": "Battery" },
-      "battery_state": { "name": "Battery state" },
-      "rf_strength": { "name": "RF signal" },
-      "wifi_strength": { "name": "WiFi signal" },
-      "boiler_status": { "name": "Boiler" },
-      "reachable": { "name": "Reachable" },
+      "temperature": { "name": "Température" },
+      "target_temperature": { "name": "Température cible" },
+      "heating_power": { "name": "Puissance de chauffe" },
+      "setpoint_mode": { "name": "Mode de consigne" },
+      "battery_level": { "name": "Batterie" },
+      "battery_state": { "name": "État batterie" },
+      "rf_strength": { "name": "Signal RF" },
+      "wifi_strength": { "name": "Signal WiFi" },
+      "boiler_status": { "name": "Chaudière" },
+      "reachable": { "name": "Joignable" },
       "therm_mode": { "name": "Mode" }
     }
   },
   "config": {
     "step": {
       "user": {
-        "title": "Netatmo Configuration",
-        "description": "Enter API credentials"
+        "title": "Configuration Netatmo",
+        "description": "Entrez vos identifiants API Netatmo."
       },
       "auth": {
-        "title": "Authorize Netatmo",
-        "description": "Link"
+        "title": "Autoriser Netatmo",
+        "description": "Suivez le lien."
       },
       "reauth_confirm": {
-        "title": "Re-authenticate",
-        "description": "Re-auth"
+        "title": "Ré-authentifier",
+        "description": "Veuillez ré-authentifier."
       }
     },
     "error": {
-      "cannot_connect": "Connection failed",
-      "invalid_auth": "Invalid auth",
-      "invalid_client_id": "Client ID missing",
-      "invalid_client_secret": "Client Secret missing",
-      "missing_code": "Auth code missing",
-      "unknown": "Unknown error"
+      "cannot_connect": "Connexion impossible",
+      "invalid_auth": "Auth invalide",
+      "invalid_client_id": "Client ID invalide",
+      "invalid_client_secret": "Secret invalide",
+      "missing_code": "Code manquant"
     },
     "abort": {
-      "already_configured": "Already configured",
-      "reauth_successful": "Re-authentication successful"
+      "already_configured": "Déjà configuré",
+      "reauth_successful": "Ré-authentification réussie"
     }
   }
 }
