@@ -11,6 +11,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import config_entry_oauth2_flow
 
 from .const import (
     DOMAIN,
@@ -27,6 +28,13 @@ CONF_CLIENT_SECRET = "client_secret"
 CONF_EXTERNAL_URL = "external_url"
 CONF_AUTH_CODE = "auth_code"
 
+class NetatmoOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implementation):
+    """Netatmo Local OAuth2 implementation."""
+
+    @property
+    def name(self) -> str:
+        """Name of the implementation."""
+        return "Netatmo"
 
 class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Netatmo Modular."""

@@ -23,6 +23,8 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
 ]
 
+OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
+OAUTH2_TOKEN = "https://api.netatmo.com/oauth2/token"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Netatmo Modular from a config entry."""
@@ -45,6 +47,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DOMAIN,
             client_id,
             client_secret,
+            OAUTH2_AUTHORIZE,
+            OAUTH2_TOKEN,
         ),
     )
 
