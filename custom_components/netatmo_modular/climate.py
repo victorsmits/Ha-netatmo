@@ -81,6 +81,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
 
     _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_translation_key = "netatmo_thermostat"
     _attr_target_temperature_step = TEMP_STEP
     _attr_min_temp = MIN_TEMP
     _attr_max_temp = MAX_TEMP
@@ -205,7 +206,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             # Lecture du Fil Pilote
             if fp_mode == "comfort":
                 return "comfort"
-            elif fp_mode == "away":
+            elif fp_mode == "away": 
                 return "away"
             # Correction "frost_guard"
             elif fp_mode in ("frost_guard", "hg"):
@@ -213,10 +214,10 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             # Si on reçoit "eco", on retourne "away" comme demandé
             elif fp_mode == "eco":
                 return "away"
-
+        
         if setpoint_mode in ("frost_guard", "hg"):
             return "frost_guard"
-
+            
         if setpoint_mode == "away":
             return "away"
 
@@ -273,9 +274,9 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
                 mode="manual",
-                fp="comfort",
+                fp="comfort", 
             )
-
+        
         # Force refresh
         await self.coordinator.async_request_refresh()
 

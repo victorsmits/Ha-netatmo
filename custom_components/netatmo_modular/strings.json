@@ -1,99 +1,61 @@
 {
-  "config": {
-    "step": {
-      "user": {
-        "title": "Configuration Netatmo",
-        "description": "Entrez vos identifiants API Netatmo depuis [dev.netatmo.com](https://dev.netatmo.com/apps).\n\n**Important:** Configurez le Redirect URI dans votre app Netatmo :\n`{external_url}/auth/external/callback`",
-        "data": {
-          "client_id": "Client ID",
-          "client_secret": "Client Secret",
-          "external_url": "URL externe Home Assistant"
-        },
-        "data_description": {
-          "client_id": "Depuis votre app Netatmo",
-          "client_secret": "Depuis votre app Netatmo",
-          "external_url": "Votre URL externe Home Assistant (ex: https://ha.exemple.com)"
-        }
-      },
-      "auth": {
-        "title": "Autoriser Netatmo",
-        "description": "**Étape 1:** Cliquez sur ce lien pour autoriser :\n[Autoriser Netatmo]({auth_url})\n\n**Étape 2:** Après autorisation, vous serez redirigé vers :\n`{callback_url}?code=XXXXX`\n\n**Étape 3:** Copiez la valeur `code` depuis l'URL et collez-la ci-dessous :",
-        "data": {
-          "auth_code": "Code d'autorisation"
-        },
-        "data_description": {
-          "auth_code": "Le code depuis l'URL de redirection (après ?code=)"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Ré-authentifier Netatmo",
-        "description": "L'intégration Netatmo doit être ré-authentifiée. Cliquez sur Soumettre pour continuer."
-      }
-    },
-    "error": {
-      "cannot_connect": "Impossible de se connecter à Netatmo",
-      "invalid_auth": "Code d'autorisation invalide. Vérifiez que vous avez copié le code complet et réessayez.",
-      "invalid_client_id": "Le Client ID est requis",
-      "invalid_client_secret": "Le Client Secret est requis",
-      "missing_code": "Le code d'autorisation est requis",
-      "unknown": "Une erreur inconnue s'est produite"
-    },
-    "abort": {
-      "already_configured": "Netatmo est déjà configuré",
-      "reauth_successful": "Ré-authentification réussie"
-    }
-  },
   "entity": {
     "climate": {
-      "room": {
-        "name": "{room_name}"
+      "netatmo_thermostat": {
+        "name": "Thermostat",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "schedule": "Schedule",
+              "frost_guard": "Frost Guard",
+              "away": "Away",
+              "comfort": "Comfort",
+              "manual": "Manual"
+            }
+          }
+        }
       }
     },
     "sensor": {
-      "temperature": {
-        "name": "Température"
-      },
-      "target_temperature": {
-        "name": "Température cible"
-      },
-      "heating_power": {
-        "name": "Puissance de chauffe"
-      },
-      "setpoint_mode": {
-        "name": "Mode de consigne"
-      },
-      "battery_level": {
-        "name": "Batterie"
-      },
-      "battery_state": {
-        "name": "État batterie"
-      },
-      "rf_strength": {
-        "name": "Signal RF"
-      },
-      "wifi_strength": {
-        "name": "Signal WiFi"
-      },
-      "boiler_status": {
-        "name": "Chaudière"
-      },
-      "reachable": {
-        "name": "Joignable"
-      },
-      "therm_mode": {
-        "name": "Mode"
-      }
+      "temperature": { "name": "Temperature" },
+      "target_temperature": { "name": "Target temperature" },
+      "heating_power": { "name": "Heating power" },
+      "setpoint_mode": { "name": "Setpoint mode" },
+      "battery_level": { "name": "Battery" },
+      "battery_state": { "name": "Battery state" },
+      "rf_strength": { "name": "RF signal" },
+      "wifi_strength": { "name": "WiFi signal" },
+      "boiler_status": { "name": "Boiler" },
+      "reachable": { "name": "Reachable" },
+      "therm_mode": { "name": "Mode" }
     }
   },
-  "state": {
-    "climate": {
-      "preset_mode": {
-        "comfort": "Confort",
-        "frost_guard": "Hors-gel",
-        "away": "Absent",
-        "schedule": "Planning",
-        "manual": "Manuel"
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netatmo Configuration",
+        "description": "Enter API credentials"
+      },
+      "auth": {
+        "title": "Authorize Netatmo",
+        "description": "Link"
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Re-auth"
       }
+    },
+    "error": {
+      "cannot_connect": "Connection failed",
+      "invalid_auth": "Invalid auth",
+      "invalid_client_id": "Client ID missing",
+      "invalid_client_secret": "Client Secret missing",
+      "missing_code": "Auth code missing",
+      "unknown": "Unknown error"
+    },
+    "abort": {
+      "already_configured": "Already configured",
+      "reauth_successful": "Re-authentication successful"
     }
   }
 }
