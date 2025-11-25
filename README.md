@@ -6,12 +6,14 @@
 
 Une intégration Home Assistant **non officielle** pour Netatmo avec découverte dynamique des entités.
 
+**Compatible Cloudflare Tunnel / Reverse Proxy** ✅
+
 ## ✨ Fonctionnalités
 
 - 🔄 **Découverte automatique** des homes, pièces et modules Netatmo
 - 🌡️ **Entités Climate** pour chaque pièce avec thermostat
 - 📊 **Sensors** pour température, batterie, signal, état chaudière
-- 🔐 **OAuth2 natif** avec refresh automatique des tokens
+- 🔐 **OAuth2** avec support URL externe (Cloudflare, Nginx, etc.)
 - 💾 **Stockage sécurisé** des tokens (persistant aux reboots)
 - 🎨 **Interface de configuration** via l'UI Home Assistant
 - 🇫🇷 **Traduction française** incluse
@@ -21,6 +23,7 @@ Une intégration Home Assistant **non officielle** pour Netatmo avec découverte
 1. Un compte Netatmo avec des équipements de chauffage (thermostats, vannes, etc.)
 2. Une application Netatmo créée sur [dev.netatmo.com](https://dev.netatmo.com/apps)
 3. HACS installé sur votre Home Assistant
+4. (Optionnel) Un domaine externe type `https://ha.exemple.com` (Cloudflare, DuckDNS, etc.)
 
 ## 🚀 Installation
 
@@ -48,24 +51,52 @@ Une intégration Home Assistant **non officielle** pour Netatmo avec découverte
 
 1. Allez sur [dev.netatmo.com/apps](https://dev.netatmo.com/apps)
 2. Créez une nouvelle application
-3. Configurez le **Redirect URI** :
+3. **IMPORTANT** - Configurez le **Redirect URI** selon votre setup :
+
+   **Si vous utilisez Cloudflare Tunnel ou un domaine externe :**
+   ```
+   https://ha.votredomaine.com/auth/external/callback
+   ```
+   
+   **Si vous n'avez pas de domaine externe :**
    ```
    https://my.home-assistant.io/redirect/oauth
    ```
-   Ou si vous avez un domaine personnalisé :
-   ```
-   https://votre-domaine.com/auth/external/callback
-   ```
+
 4. Notez le **Client ID** et **Client Secret**
 
 ### 2. Ajouter l'intégration
 
 1. Dans Home Assistant : **Paramètres** → **Appareils et services** → **Ajouter une intégration**
 2. Cherchez "Netatmo Modular"
-3. Entrez votre **Client ID** et **Client Secret**
-4. Vous serez redirigé vers Netatmo pour vous connecter
-5. Autorisez l'application
-6. C'est fait ! 🎉
+3. Remplissez :
+   - **Client ID** : votre client ID Netatmo
+   - **Client Secret** : votre client secret Netatmo
+   - **URL externe** : `https://ha.votredomaine.com` (ou laissez vide si pas de domaine)
+4. Cliquez sur **Suivant**
+5. Un lien d'autorisation Netatmo s'affiche → Cliquez dessus
+6. Connectez-vous à Netatmo et autorisez l'application
+7. Vous serez redirigé vers une URL contenant `?code=XXXXX`
+8. **Copiez le code** (la partie après `code=` et avant `&`)
+9. Collez-le dans le champ "Code d'autorisation"
+10. C'est fait ! 🎉
+
+### Exemple avec Cloudflare
+
+```
+Configuration Netatmo :
+  Redirect URI: https://ha.victorsmits.com/auth/external/callback
+
+Configuration Intégration :
+  Client ID: 692xxxxxxxxxxxxx
+  Client Secret: qafyexxxxxxxxxxxxxxx
+  URL externe: https://ha.victorsmits.com
+
+Après autorisation, URL de redirection :
+  https://ha.victorsmits.com/auth/external/callback?code=abc123xyz&state=...
+  
+→ Copiez "abc123xyz" et collez-le dans l'intégration
+```
 
 ## 🎛️ Entités créées
 

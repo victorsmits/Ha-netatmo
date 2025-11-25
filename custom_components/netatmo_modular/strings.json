@@ -3,19 +3,28 @@
     "step": {
       "user": {
         "title": "Configuration Netatmo",
-        "description": "Entrez vos identifiants Netatmo API.\n\nVous pouvez les obtenir sur [dev.netatmo.com]({netatmo_dev_url}).\n\n**Important:** Configurez le Redirect URI dans votre app Netatmo:\n`{redirect_uri}`",
+        "description": "Entrez vos identifiants Netatmo API.\n\nVous pouvez les obtenir sur [dev.netatmo.com]({netatmo_dev_url}).\n\n**Important:** L'URL externe doit correspondre au Redirect URI configuré dans votre app Netatmo.",
         "data": {
           "client_id": "Client ID",
-          "client_secret": "Client Secret"
+          "client_secret": "Client Secret",
+          "external_url": "URL externe Home Assistant (ex: https://ha.exemple.com)"
         }
       },
-      "pick_implementation": {
-        "title": "Authentification"
+      "auth": {
+        "title": "Autorisation Netatmo",
+        "description": "1. Cliquez sur ce lien pour vous connecter à Netatmo:\n\n[Autoriser Netatmo]({auth_url})\n\n2. Après autorisation, vous serez redirigé vers:\n`{callback_url}?code=XXXXX`\n\n3. Copiez le **code** depuis l'URL et collez-le ci-dessous:",
+        "data": {
+          "auth_code": "Code d'autorisation"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ré-authentification requise",
+        "description": "L'intégration Netatmo Modular doit être ré-authentifiée.\n\nClient ID: {client_id}"
       }
     },
     "error": {
       "cannot_connect": "Impossible de se connecter à Netatmo",
-      "invalid_auth": "Authentification invalide",
+      "invalid_auth": "Code d'autorisation invalide ou expiré. Réessayez.",
       "unknown": "Erreur inconnue"
     },
     "abort": {

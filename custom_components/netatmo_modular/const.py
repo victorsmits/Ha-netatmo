@@ -6,6 +6,7 @@ DOMAIN: Final = "netatmo_modular"
 # Configuration keys
 CONF_CLIENT_ID: Final = "client_id"
 CONF_CLIENT_SECRET: Final = "client_secret"
+CONF_EXTERNAL_URL: Final = "external_url"
 
 # OAuth2
 OAUTH2_AUTHORIZE: Final = "https://api.netatmo.com/oauth2/authorize"
