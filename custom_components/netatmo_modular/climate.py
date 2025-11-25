@@ -180,7 +180,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             return HVACMode.AUTO
         elif setpoint_mode in ("manual", "max", "comfort"):
             return HVACMode.HEAT
-        elif setpoint_mode in ("away", "hg"):
+        elif setpoint_mode in ("away", "frost_guard"):
             return HVACMode.OFF
 
         return HVACMode.AUTO
