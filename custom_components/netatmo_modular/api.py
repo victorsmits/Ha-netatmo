@@ -61,15 +61,12 @@ class NetatmoApiClient:
         """Check if the current token is valid."""
         if not self.access_token or not self.token_expires_at:
             return False
-        # Add 10 minute buffer
         return datetime.now() < (self.token_expires_at - timedelta(minutes=10))
 
     async def async_refresh_token(self) -> dict[str, Any]:
         """Refresh the access token."""
         if not self.refresh_token:
             raise NetatmoAuthError("No refresh token available")
-
-        _LOGGER.debug("Refreshing Netatmo access token")
 
         data = {
             "grant_type": "refresh_token",
@@ -81,33 +78,20 @@ class NetatmoApiClient:
         async with self.session.post(OAUTH2_TOKEN, data=data) as response:
             if response.status != 200:
                 error_text = await response.text()
-                _LOGGER.error("Token refresh failed: %s - %s", response.status, error_text)
                 raise NetatmoAuthError(f"Token refresh failed: {error_text}")
 
             result = await response.json()
-
             self.access_token = result["access_token"]
             self.refresh_token = result["refresh_token"]
-            self.token_expires_at = datetime.now() + timedelta(
-                seconds=result.get("expires_in", 10800)
-            )
-
-            _LOGGER.debug("Token refreshed successfully, expires at %s", self.token_expires_at)
-
+            self.token_expires_at = datetime.now() + timedelta(seconds=result.get("expires_in", 10800))
             return {
                 "access_token": self.access_token,
                 "refresh_token": self.refresh_token,
                 "expires_at": self.token_expires_at.isoformat(),
             }
 
-    async def _async_request(
-        self,
-        method: str,
-        url: str,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
+    async def _async_request(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
         """Make an authenticated API request."""
-        # Refresh token if needed
         if not self.is_token_valid():
             await self.async_refresh_token()
 
@@ -115,22 +99,18 @@ class NetatmoApiClient:
             "Authorization": f"Bearer {self.access_token}",
             "Accept": "application/json",
         }
-
         if "headers" in kwargs:
             headers.update(kwargs.pop("headers"))
 
         async with self.session.request(method, url, headers=headers, **kwargs) as response:
             if response.status == 403:
-                # Token might be invalid, try to refresh
-                _LOGGER.warning("Got 403, attempting token refresh")
                 await self.async_refresh_token()
-                # Retry the request
                 headers["Authorization"] = f"Bearer {self.access_token}"
-                async with self.session.request(method, url, headers=headers, **kwargs) as retry_response:
-                    if retry_response.status != 200:
-                        error_text = await retry_response.text()
-                        raise NetatmoApiError(f"API request failed: {retry_response.status} - {error_text}")
-                    return await retry_response.json()
+                async with self.session.request(method, url, headers=headers, **kwargs) as retry_resp:
+                    if retry_resp.status != 200:
+                        error_text = await retry_resp.text()
+                        raise NetatmoApiError(f"API request failed: {retry_resp.status} - {error_text}")
+                    return await retry_resp.json()
 
             if response.status != 200:
                 error_text = await response.text()
@@ -138,87 +118,11 @@ class NetatmoApiClient:
 
             return await response.json()
 
-    async def async_get_homes_data(self) -> dict[str, Any]:
-        """Get all homes data including rooms and modules."""
-        _LOGGER.debug("Fetching homes data")
-        result = await self._async_request("GET", API_HOMES_DATA)
-        return result.get("body", {})
-
-    async def async_get_home_status(self, home_id: str) -> dict[str, Any]:
-        """Get current status of a home."""
-        _LOGGER.debug("Fetching home status for %s", home_id)
-        result = await self._async_request(
-            "GET",
-            API_HOME_STATUS,
-            params={"home_id": home_id},
-        )
-        return result.get("body", {}).get("home", {})
-
-    async def async_set_room_thermpoint(
-        self,
-        home_id: str,
-        room_id: str,
-        mode: str,
-        temp: float | None = None,
-        end_time: int | None = None,
-    ) -> bool:
-        """Set room thermostat point."""
-        _LOGGER.debug(
-            "Setting room thermpoint: home=%s, room=%s, mode=%s, temp=%s",
-            home_id,
-            room_id,
-            mode,
-            temp,
-        )
-
-        data: dict[str, Any] = {
-            "home_id": home_id,
-            "room_id": room_id,
-            "mode": mode,
-        }
-
-        if temp is not None:
-            data["temp"] = temp
-
-        if end_time is not None:
-            data["endtime"] = end_time
-
-        result = await self._async_request(
-            "POST",
-            API_SET_ROOM_THERMPOINT,
-            data=data,
-        )
-
-        return result.get("status") == "ok"
-
-    async def async_set_therm_mode(
-        self,
-        home_id: str,
-        mode: str,
-        end_time: int | None = None,
-    ) -> bool:
-        """Set home thermostat mode."""
-        _LOGGER.debug("Setting therm mode: home=%s, mode=%s", home_id, mode)
-
-        data: dict[str, Any] = {
-            "home_id": home_id,
-            "mode": mode,
-        }
-
-        if end_time is not None:
-            data["endtime"] = end_time
-
-        result = await self._async_request(
-            "POST",
-            API_SET_THERM_MODE,
-            data=data,
-        )
-
-        return result.get("status") == "ok"
-
     async def async_get_full_data(self) -> dict[str, Any]:
         """Get complete data: homes + status for each home."""
-        homes_data = await self.async_get_homes_data()
+        # 1. Get Homes Data (Structure)
+        result = await self._async_request("GET", API_HOMES_DATA)
+        homes_data = result.get("body", {})
         homes = homes_data.get("homes", [])
 
         result = {
@@ -226,17 +130,18 @@ class NetatmoApiClient:
             "user": homes_data.get("user", {}),
         }
 
+        # 2. Get Home Status (States) for each home
         for home in homes:
             home_id = home.get("id")
             if not home_id:
                 continue
-
             try:
-                status = await self.async_get_home_status(home_id)
-                home_with_status = {
-                    **home,
-                    "status": status,
-                }
+                status_resp = await self._async_request("GET", API_HOME_STATUS, params={"home_id": home_id})
+                status = status_resp.get("body", {}).get("home", {})
+                if not status:
+                    _LOGGER.warning("Empty status for home %s", home_id)
+                
+                home_with_status = {**home, "status": status}
                 result["homes"].append(home_with_status)
             except NetatmoApiError as err:
                 _LOGGER.warning("Failed to get status for home %s: %s", home_id, err)
@@ -250,46 +155,45 @@ class NetatmoApiClient:
         room_id: str,
         mode: str,
         temp: float | None = None,
-        fp: str | None = None,  # <--- NOUVEAU PARAMÈTRE
-        end_time: int | None = None,
+        fp: str | None = None,
     ) -> bool:
-        """Set room status using setstate."""
-        _LOGGER.debug(
-            "Setting state: home=%s, room=%s, mode=%s, temp=%s, fp=%s",
-            home_id,
-            room_id,
-            mode,
-            temp,
-            fp,
-        )
-
-        room_data = {
-            "id": room_id,
-            "therm_setpoint_mode": mode,
-        }
-
+        """Set room thermostat state."""
+        room_data = {"id": room_id, "therm_setpoint_mode": mode}
         if temp is not None:
             room_data["therm_setpoint_temperature"] = temp
-        
-        # --- AJOUT DU FIL PILOTE ---
         if fp is not None:
             room_data["therm_setpoint_fp"] = fp
 
-        if end_time is not None:
-            room_data["therm_setpoint_end_time"] = end_time
-
-        data = {
-            "home": {
-                "id": home_id,
-                "rooms": [room_data],
-            }
-        }
-
-        # On utilise json=data pour que aiohttp formatte correctement le payload
-        result = await self._async_request(
-            "POST",
-            API_SET_STATE,
-            json=data,
-        )
-
+        data = {"home": {"id": home_id, "rooms": [room_data]}}
+        result = await self._async_request("POST", API_SET_STATE, json=data)
         return result.get("status") == "ok" or result.get("time_server") is not None
+
+    async def async_set_module_state(
+        self,
+        home_id: str,
+        module_id: str,
+        on: bool | None = None,
+        brightness: int | None = None,
+    ) -> bool:
+        """Set module state (Light/Plug)."""
+        module_data = {"id": module_id}
+        
+        # Pour les modules, il faut souvent utiliser le bridge (pont) si c'est du Zigbee,
+        # mais l'API setstate standard accepte directement l'ID du module dans 'modules'.
+        
+        if on is not None:
+            module_data["on"] = on
+        if brightness is not None:
+            module_data["brightness"] = brightness
+
+        data = {"home": {"id": home_id, "modules": [module_data]}}
+        
+        _LOGGER.debug("Setting module state: %s", data)
+        result = await self._async_request("POST", API_SET_STATE, json=data)
+        return result.get("status") == "ok" or result.get("time_server") is not None
+
+    async def async_set_therm_mode(self, home_id: str, mode: str) -> bool:
+        """Set home thermostat mode."""
+        data = {"home_id": home_id, "mode": mode}
+        result = await self._async_request("POST", API_SET_THERM_MODE, data=data)
+        return result.get("status") == "ok"

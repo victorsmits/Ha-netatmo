@@ -1,5 +1,6 @@
 """Constants for Netatmo Modular integration."""
 from typing import Final
+from homeassistant.const import Platform
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT,
@@ -33,6 +34,18 @@ SCOPES: Final = [
     "access_presence",
     "read_homecoach",
     "read_smokedetector",
+    "read_magellan",
+    "write_magellan",
+    "read_bubendorff",
+    "write_bubendorff",
+    "read_smarther",
+    "write_smarther",
+    "read_mx",
+    "write_mx",
+    "write_presence",
+    "read_carbonmonoxidedetector",
+    "read_mhs1",
+    "write_mhs1"
 ]
 
 # API Endpoints
@@ -47,35 +60,49 @@ API_SET_STATE: Final = f"{API_BASE_URL}/setstate"
 UPDATE_INTERVAL: Final = 300
 TOKEN_REFRESH_BUFFER: Final = 600
 
-# Netatmo internal constants
+# Netatmo thermostat modes mapping
+NETATMO_TO_HA_HVAC_MODE: Final = {
+    "schedule": "auto",
+    "away": "off",
+    "hg": "off",
+    "frost_guard": "off",
+    "manual": "heat",
+    "off": "off",
+    "max": "heat",
+}
+
+HA_TO_NETATMO_HVAC_MODE: Final = {
+    "auto": "schedule",
+    "heat": "manual",
+    "off": "away",
+}
+
+# Netatmo preset modes (Interne)
 NETATMO_PRESET_COMFORT: Final = "comfort"
 NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
-NETATMO_PRESET_HG: Final = "hg"
 NETATMO_PRESET_AWAY: Final = "away"
 NETATMO_PRESET_SCHEDULE: Final = "home"
 NETATMO_PRESET_ECO: Final = "eco"
 
 # Mappings
-# Netatmo -> HA Preset
 NETATMO_TO_PRESET_MAP: Final[dict[str, str]] = {
     NETATMO_PRESET_COMFORT: PRESET_COMFORT,
-    NETATMO_PRESET_FROST_GUARD: PRESET_SLEEP, # Mappé sur Lit
-    NETATMO_PRESET_HG: PRESET_SLEEP,          # Mappé sur Lit
+    NETATMO_PRESET_FROST_GUARD: PRESET_SLEEP,
+    "hg": PRESET_SLEEP,
     NETATMO_PRESET_AWAY: PRESET_AWAY,
-    NETATMO_PRESET_SCHEDULE: PRESET_HOME,     # Mappé sur Maison
-    NETATMO_PRESET_ECO: PRESET_AWAY,          # Eco redirigé vers Away
+    NETATMO_PRESET_SCHEDULE: PRESET_HOME,
+    "schedule": PRESET_HOME,
+    NETATMO_PRESET_ECO: PRESET_AWAY,
 }
 
-# HA Preset -> Netatmo Command
 PRESET_TO_NETATMO_MAP: Final[dict[str, str]] = {
     PRESET_HOME: NETATMO_PRESET_SCHEDULE,
     PRESET_AWAY: NETATMO_PRESET_AWAY,
     PRESET_SLEEP: NETATMO_PRESET_FROST_GUARD,
     PRESET_COMFORT: NETATMO_PRESET_COMFORT,
-    PRESET_ECO: NETATMO_PRESET_FROST_GUARD, # Sécurité si Eco est appelé
+    PRESET_ECO: NETATMO_PRESET_FROST_GUARD, 
 }
 
-# HA List of presets
 PRESET_MODES: Final = [
     PRESET_COMFORT,
     PRESET_SLEEP, 
@@ -83,13 +110,38 @@ PRESET_MODES: Final = [
     PRESET_HOME,
 ]
 
-# Device types
+# --- DEVICE TYPES ---
 DEVICE_TYPE_THERMOSTAT: Final = "NATherm1"
 DEVICE_TYPE_VALVE: Final = "NRV"
 DEVICE_TYPE_PLUG: Final = "NAPlug"
 DEVICE_TYPE_OTH: Final = "OTH"
 DEVICE_TYPE_OTM: Final = "OTM"
 DEVICE_TYPE_BNS: Final = "BNS"
+
+# Light Types (Legrand/Netatmo)
+DEVICE_TYPE_LIGHT: Final = "NLL"      # Interrupteur lumière
+DEVICE_TYPE_DIMMER: Final = "NLF"     # Variateur
+DEVICE_TYPE_DIMMER2: Final = "NLFN"   # Variateur avec neutre
+DEVICE_TYPE_MICROMODULE: Final = "NLLM" # Micromodule
+DEVICE_TYPE_CABLE_OUTLET: Final = "NLC" # Sortie de cable
+
+# Supported Lists
+SUPPORTED_CLIMATE_TYPES: Final = [
+    DEVICE_TYPE_THERMOSTAT,
+    DEVICE_TYPE_VALVE,
+    DEVICE_TYPE_PLUG,
+    DEVICE_TYPE_OTH,
+    DEVICE_TYPE_OTM,
+    DEVICE_TYPE_BNS,
+]
+
+SUPPORTED_LIGHT_TYPES: Final = [
+    DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_DIMMER,
+    DEVICE_TYPE_DIMMER2,
+    DEVICE_TYPE_MICROMODULE,
+    DEVICE_TYPE_CABLE_OUTLET,
+]
 
 # Attributes
 ATTR_HOME_ID: Final = "home_id"

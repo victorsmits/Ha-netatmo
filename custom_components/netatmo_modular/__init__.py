@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
-#    Platform.SENSOR,
+    Platform.LIGHT
 ]
 
 OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
