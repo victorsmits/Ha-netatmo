@@ -52,7 +52,7 @@ NETATMO_PRESET_COMFORT: Final = "comfort"
 NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
 NETATMO_PRESET_HG: Final = "hg"
 NETATMO_PRESET_AWAY: Final = "away"
-NETATMO_PRESET_SCHEDULE: Final = "schedule"
+NETATMO_PRESET_SCHEDULE: Final = "home"
 NETATMO_PRESET_ECO: Final = "eco"
 
 # Mappings
