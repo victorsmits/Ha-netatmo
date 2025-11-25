@@ -1,0 +1,8 @@
+{
+  "name": "Netatmo Modular",
+  "homeassistant": "2024.1.0",
+  "render_readme": true,
+  "domains": ["climate", "sensor"],
+  "country": ["FR"],
+  "iot_class": "cloud_polling"
+}

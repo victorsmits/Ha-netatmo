@@ -1,0 +1,93 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netatmo Configuration",
+        "description": "Enter your Netatmo API credentials.\n\nYou can get them at [dev.netatmo.com]({netatmo_dev_url}).\n\n**Important:** Configure the Redirect URI in your Netatmo app.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret"
+        }
+      },
+      "pick_implementation": {
+        "title": "Authentication"
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Netatmo",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unknown error"
+    },
+    "abort": {
+      "already_configured": "Netatmo is already configured",
+      "reauth_successful": "Re-authentication successful",
+      "oauth_error": "Error during OAuth authentication",
+      "missing_configuration": "Missing configuration"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Netatmo Modular Options",
+        "data": {
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "netatmo_room": {
+        "name": "Thermostat {room_name}"
+      }
+    },
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "target_temperature": {
+        "name": "Target Temperature"
+      },
+      "heating_power": {
+        "name": "Heating Power"
+      },
+      "setpoint_mode": {
+        "name": "Setpoint Mode"
+      },
+      "battery_level": {
+        "name": "Battery Level"
+      },
+      "battery_state": {
+        "name": "Battery State"
+      },
+      "rf_strength": {
+        "name": "RF Signal"
+      },
+      "wifi_strength": {
+        "name": "WiFi Signal"
+      },
+      "boiler_status": {
+        "name": "Boiler Status"
+      },
+      "reachable": {
+        "name": "Reachable"
+      },
+      "therm_mode": {
+        "name": "Thermostat Mode"
+      }
+    }
+  },
+  "state": {
+    "climate": {
+      "_": {
+        "preset_mode": {
+          "comfort": "Comfort",
+          "eco": "Economy",
+          "frost_guard": "Frost Guard",
+          "away": "Away",
+          "schedule": "Schedule"
+        }
+      }
+    }
+  }
+}

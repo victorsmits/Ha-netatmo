@@ -1,0 +1,93 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration Netatmo",
+        "description": "Entrez vos identifiants Netatmo API.\n\nVous pouvez les obtenir sur [dev.netatmo.com]({netatmo_dev_url}).\n\n**Important:** Configurez le Redirect URI dans votre app Netatmo.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret"
+        }
+      },
+      "pick_implementation": {
+        "title": "Authentification"
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à Netatmo",
+      "invalid_auth": "Authentification invalide",
+      "unknown": "Erreur inconnue"
+    },
+    "abort": {
+      "already_configured": "Netatmo est déjà configuré",
+      "reauth_successful": "Ré-authentification réussie",
+      "oauth_error": "Erreur lors de l'authentification OAuth",
+      "missing_configuration": "Configuration manquante"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Netatmo Modular",
+        "data": {
+          "update_interval": "Intervalle de mise à jour (secondes)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "netatmo_room": {
+        "name": "Thermostat {room_name}"
+      }
+    },
+    "sensor": {
+      "temperature": {
+        "name": "Température"
+      },
+      "target_temperature": {
+        "name": "Température cible"
+      },
+      "heating_power": {
+        "name": "Puissance de chauffe"
+      },
+      "setpoint_mode": {
+        "name": "Mode consigne"
+      },
+      "battery_level": {
+        "name": "Niveau de batterie"
+      },
+      "battery_state": {
+        "name": "État de la batterie"
+      },
+      "rf_strength": {
+        "name": "Signal RF"
+      },
+      "wifi_strength": {
+        "name": "Signal WiFi"
+      },
+      "boiler_status": {
+        "name": "État chaudière"
+      },
+      "reachable": {
+        "name": "Joignable"
+      },
+      "therm_mode": {
+        "name": "Mode thermostat"
+      }
+    }
+  },
+  "state": {
+    "climate": {
+      "_": {
+        "preset_mode": {
+          "comfort": "Confort",
+          "eco": "Économie",
+          "frost_guard": "Hors-gel",
+          "away": "Absent",
+          "schedule": "Programme"
+        }
+      }
+    }
+  }
+}
