@@ -201,7 +201,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         if preset_mode == PRESET_HOME:
-            await self.coordinator.async_set_room_mode(self._room_id, mode="schedule")
+            await self.coordinator.async_set_room_mode(self._room_id, mode="home")
         
         elif preset_mode == PRESET_AWAY:
             await self.coordinator.async_set_room_mode(self._room_id, mode="manual", fp="away")
