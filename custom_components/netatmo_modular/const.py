@@ -1,5 +1,12 @@
 """Constants for Netatmo Modular integration."""
 from typing import Final
+# Import des constantes pour avoir les icônes natives (Backend Trick)
+from homeassistant.components.climate.const import (
+    PRESET_AWAY,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_HOME,
+)
 
 DOMAIN: Final = "netatmo_modular"
 
@@ -12,32 +19,32 @@ CONF_EXTERNAL_URL: Final = "external_url"
 OAUTH2_AUTHORIZE: Final = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN: Final = "https://api.netatmo.com/oauth2/token"
 
-# --- LISTE DES SCOPES MISE À JOUR ---
+# --- VOTRE LISTE COMPLÈTE DES SCOPES (Restaurée) ---
 SCOPES: Final = [
-    	"read_station",
-        "read_magellan",
-        "write_magellan",
-        "read_bubendorff",
-        "write_bubendorff",
-        "read_smarther",
-        "write_smarther",
-        "read_thermostat",
-        "write_thermostat",
-        "read_camera",
-        "write_camera",
-        "access_camera",
-        "read_doorbell",
-        "access_doorbell",
-        "read_mx",
-        "write_mx",
-        "read_presence",
-        "write_presence",
-        "access_presence",
-        "read_homecoach",
-        "read_carbonmonoxidedetector",
-        "read_smokedetector",
-        "read_mhs1",
-        "write_mhs1"
+    "read_station",
+    "read_magellan",
+    "write_magellan",
+    "read_bubendorff",
+    "write_bubendorff",
+    "read_smarther",
+    "write_smarther",
+    "read_thermostat",
+    "write_thermostat",
+    "read_camera",
+    "write_camera",
+    "access_camera",
+    "read_doorbell",
+    "access_doorbell",
+    "read_mx",
+    "write_mx",
+    "read_presence",
+    "write_presence",
+    "access_presence",
+    "read_homecoach",
+    "read_carbonmonoxidedetector",
+    "read_smokedetector",
+    "read_mhs1",
+    "write_mhs1"
 ]
 
 # API Endpoints
@@ -56,33 +63,35 @@ TOKEN_REFRESH_BUFFER: Final = 600  # Refresh 10 min before expiry
 NETATMO_TO_HA_HVAC_MODE: Final = {
     "schedule": "auto",
     "away": "off",
-    "frost_guard": "off",  # Hors-gel / Frost guard
+    "hg": "off",
+    "frost_guard": "off",
     "manual": "heat",
     "off": "off",
     "max": "heat",
-    "cooling": "cool",
 }
 
 HA_TO_NETATMO_HVAC_MODE: Final = {
     "auto": "schedule",
     "heat": "manual",
-    "cool": "cooling",
     "off": "away",
 }
 
-# Netatmo preset modes
+# Netatmo preset modes (Interne)
 NETATMO_PRESET_COMFORT: Final = "comfort"
-NETATMO_PRESET_ECO: Final = "eco"
 NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
 NETATMO_PRESET_AWAY: Final = "away"
 NETATMO_PRESET_SCHEDULE: Final = "schedule"
 
-# HA preset modes mapping
+# HA preset modes mapping (Pour les icônes)
+# Confort = Comfort
+# Hors-gel = ECO (Icône Feuille)
+# Absent = AWAY (Icône Bonhomme)
+# Planning = HOME (Icône Maison)
 PRESET_MODES: Final = [
-    "comfort",
-    "frost_guard",
-    "away",
-    "schedule",
+    PRESET_COMFORT,
+    PRESET_ECO, 
+    PRESET_AWAY,
+    PRESET_HOME,
 ]
 
 # Device types
