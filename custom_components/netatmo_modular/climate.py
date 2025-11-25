@@ -38,11 +38,12 @@ _LOGGER = logging.getLogger(__name__)
 
 # Mapping Netatmo setpoint modes to HA preset modes
 NETATMO_TO_PRESET = {
-    "manual": None,  # Manual mode has no preset
+    "manual": None,
     "max": "comfort",
     "hg": "frost_guard",
     "off": "away",
     "schedule": "schedule",
+    "home": "schedule",
     "away": "away",
     "comfort": "comfort",
     "eco": "eco",
@@ -241,29 +242,6 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             temp=temperature,
         )
 
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new HVAC mode."""
-        _LOGGER.debug("Setting HVAC mode for room %s to %s", self._room_id, hvac_mode)
-
-        if hvac_mode == HVACMode.OFF:
-            await self.coordinator.async_set_room_mode(
-                room_id=self._room_id,
-                mode="off",
-            )
-        elif hvac_mode == HVACMode.AUTO:
-            await self.coordinator.async_set_room_mode(
-                room_id=self._room_id,
-                mode="home",  # Return to schedule
-            )
-        elif hvac_mode == HVACMode.HEAT:
-            # Set to manual with current or default temperature
-            current_target = self.target_temperature or 20
-            await self.coordinator.async_set_room_mode(
-                room_id=self._room_id,
-                mode="manual",
-                temp=current_target,
-            )
-
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
         _LOGGER.debug("Setting preset mode for room %s to %s", self._room_id, preset_mode)
@@ -271,9 +249,10 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         if preset_mode == "schedule":
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
-                mode="home",
+                mode="schedule",
             )
         elif preset_mode == "away":
+            # Away est souvent un mode global, mais on tente de le mettre sur la pièce
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
                 mode="away",
@@ -284,19 +263,29 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
                 mode="hg",
             )
         elif preset_mode == "comfort":
-            # Comfort = max temperature (or high temp)
+            # --- MODIFICATION: On envoie 'fp' = comfort en mode manual ---
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
                 mode="manual",
-                temp=self.max_temp - 2,  # 28°C as comfort
+                fp="comfort", 
             )
         elif preset_mode == "eco":
-            # Eco = lower temperature
+            # --- MODIFICATION: On envoie 'fp' = eco en mode manual ---
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
                 mode="manual",
-                temp=self.min_temp + 3,  # 10°C as eco
+                fp="eco",
             )
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set new HVAC mode."""
+        if hvac_mode == HVACMode.OFF:
+            await self.async_set_preset_mode("frost_guard")
+        elif hvac_mode == HVACMode.AUTO:
+            await self.async_set_preset_mode("schedule")
+        elif hvac_mode == HVACMode.HEAT:
+            # Par défaut, quand on met "Chauffage", on met en Confort
+            await self.async_set_preset_mode("comfort")
 
     async def async_turn_on(self) -> None:
         """Turn on the climate device."""

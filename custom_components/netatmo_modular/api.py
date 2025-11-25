@@ -250,15 +250,17 @@ class NetatmoApiClient:
         room_id: str,
         mode: str,
         temp: float | None = None,
+        fp: str | None = None,  # <--- NOUVEAU PARAMÈTRE
         end_time: int | None = None,
     ) -> bool:
-        """Set room status using setstate (required for new API)."""
+        """Set room status using setstate."""
         _LOGGER.debug(
-            "Setting state: home=%s, room=%s, mode=%s, temp=%s",
+            "Setting state: home=%s, room=%s, mode=%s, temp=%s, fp=%s",
             home_id,
             room_id,
             mode,
             temp,
+            fp,
         )
 
         room_data = {
@@ -268,6 +270,10 @@ class NetatmoApiClient:
 
         if temp is not None:
             room_data["therm_setpoint_temperature"] = temp
+        
+        # --- AJOUT DU FIL PILOTE ---
+        if fp is not None:
+            room_data["therm_setpoint_fp"] = fp
 
         if end_time is not None:
             room_data["therm_setpoint_end_time"] = end_time
@@ -279,11 +285,11 @@ class NetatmoApiClient:
             }
         }
 
+        # On utilise json=data pour que aiohttp formatte correctement le payload
         result = await self._async_request(
             "POST",
             API_SET_STATE,
-            json=data, # Attention: setstate attend souvent un JSON body, pas 'data' form-encoded
+            json=data,
         )
 
-        # L'API peut renvoyer "status": "ok" ou juste une confirmation
         return result.get("status") == "ok" or result.get("time_server") is not None

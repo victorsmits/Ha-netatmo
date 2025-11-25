@@ -214,6 +214,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         room_id: str,
         mode: str,
         temp: float | None = None,
+        fp: str | None = None, # <--- NOUVEAU PARAMÈTRE
     ) -> bool:
         """Set room thermostat mode using the new setstate API."""
         room = self.get_room(room_id)
@@ -223,17 +224,15 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         home_id = room["home_id"]
 
-        # --- C'EST ICI QUE LA MAGIE OPÈRE ---
-        # On utilise async_set_state qui a été ajouté dans api.py
         success = await self.api.async_set_state(
             home_id=home_id,
             room_id=room_id,
             mode=mode,
             temp=temp,
+            fp=fp, # <--- ON PASSE LE PARAMÈTRE
         )
 
         if success:
-            # Refresh data
             await self.async_request_refresh()
 
         return success
