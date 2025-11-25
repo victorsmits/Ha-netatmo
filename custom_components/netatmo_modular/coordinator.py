@@ -94,9 +94,6 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _process_data(self, data: dict[str, Any]) -> None:
         """Process the fetched data into structured dictionaries."""
-        # Debug log pour voir ce que l'API renvoie
-        _LOGGER.debug("RAW DATA FROM API: %s", data)
-
         self._homes = {}
         self._rooms = {}
         self._modules = {}
@@ -122,7 +119,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Process rooms
             status_rooms = {r["id"]: r for r in home.get("status", {}).get("rooms", [])}
-            
+
             for room in home.get("rooms", []):
                 room_id = room.get("id")
                 if not room_id:
@@ -130,7 +127,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 # Merge room definition with status
                 room_status = status_rooms.get(room_id, {})
-                
+
                 room_data = {
                     "id": room_id,
                     "home_id": home_id,
@@ -142,6 +139,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "therm_measured_temperature": room_status.get("therm_measured_temperature"),
                     "therm_setpoint_temperature": room_status.get("therm_setpoint_temperature"),
                     "therm_setpoint_mode": room_status.get("therm_setpoint_mode"),
+                    "therm_setpoint_fp": room_status.get("therm_setpoint_fp"), # <--- LIGNE AJOUTÉE (CRITIQUE)
                     "therm_setpoint_start_time": room_status.get("therm_setpoint_start_time"),
                     "therm_setpoint_end_time": room_status.get("therm_setpoint_end_time"),
                     "heating_power_request": room_status.get("heating_power_request"),
@@ -154,7 +152,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Process modules
             status_modules = {m["id"]: m for m in home.get("status", {}).get("modules", [])}
-            
+
             for module in home.get("modules", []):
                 module_id = module.get("id")
                 if not module_id:
@@ -214,7 +212,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         room_id: str,
         mode: str,
         temp: float | None = None,
-        fp: str | None = None, # <--- NOUVEAU PARAMÈTRE
+        fp: str | None = None,
     ) -> bool:
         """Set room thermostat mode using the new setstate API."""
         room = self.get_room(room_id)
@@ -229,10 +227,11 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             room_id=room_id,
             mode=mode,
             temp=temp,
-            fp=fp, # <--- ON PASSE LE PARAMÈTRE
+            fp=fp,
         )
 
         if success:
+            # Refresh data
             await self.async_request_refresh()
 
         return success
