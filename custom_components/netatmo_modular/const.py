@@ -56,7 +56,7 @@ TOKEN_REFRESH_BUFFER: Final = 600  # Refresh 10 min before expiry
 NETATMO_TO_HA_HVAC_MODE: Final = {
     "schedule": "auto",
     "away": "off",
-    "hg": "off",  # Hors-gel / Frost guard
+    "frost_guard": "off",  # Hors-gel / Frost guard
     "manual": "heat",
     "off": "off",
     "max": "heat",

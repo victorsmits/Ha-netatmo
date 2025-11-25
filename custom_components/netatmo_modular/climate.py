@@ -262,7 +262,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
                 mode="manual",
-                fp="hg"
+                fp="frost_guard"
             )
         elif preset_mode == "comfort":
             # --- MODIFICATION: On envoie 'fp' = comfort en mode manual ---
