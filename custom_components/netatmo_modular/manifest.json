@@ -4,9 +4,9 @@
   "codeowners": ["@victorsmits"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/victorsmits/netatmo-modular-ha",
+  "documentation": "https://github.com/victorsmits/Ha-netatmo",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/victorsmits/netatmo-modular-ha/issues",
+  "issue_tracker": "https://github.com/victorsmits/Ha-netatmo/issues",
   "requirements": ["aiohttp>=3.8.0"],
   "version": "1.0.0",
   "integration_type": "hub"

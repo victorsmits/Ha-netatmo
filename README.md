@@ -1,8 +1,8 @@
 # 🏠 Netatmo Modular - Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/victorsmits/netatmo-modular-ha.svg)](https://github.com/victorsmits/netatmo-modular-ha/releases)
-[![License](https://img.shields.io/github/license/victorsmits/netatmo-modular-ha.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/victorsmits/Ha-netatmo.svg)](https://github.com/victorsmits/Ha-netatmo/releases)
+[![License](https://img.shields.io/github/license/victorsmits/Ha-netatmo.svg)](LICENSE)
 
 Une intégration Home Assistant **non officielle** pour Netatmo avec découverte dynamique des entités.
 
@@ -32,7 +32,7 @@ Une intégration Home Assistant **non officielle** pour Netatmo avec découverte
 1. Ouvrez HACS dans Home Assistant
 2. Cliquez sur les 3 points en haut à droite → **Dépôts personnalisés**
 3. Ajoutez :
-   - URL : `https://github.com/victorsmits/netatmo-modular-ha`
+   - URL : `https://github.com/victorsmits/Ha-netatmo`
    - Catégorie : `Integration`
 4. Cliquez sur **Ajouter**
 5. Cherchez "Netatmo Modular" dans HACS
