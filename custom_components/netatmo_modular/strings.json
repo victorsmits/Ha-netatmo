@@ -2,100 +2,86 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configuration Netatmo",
-        "description": "Entrez vos identifiants Netatmo API.\n\nVous pouvez les obtenir sur [dev.netatmo.com]({netatmo_dev_url}).\n\n**Important:** L'URL externe doit correspondre au Redirect URI configuré dans votre app Netatmo.",
+        "title": "Netatmo Configuration",
+        "description": "Enter your Netatmo API credentials from [dev.netatmo.com](https://dev.netatmo.com/apps).\n\n**Important:** Set the Redirect URI in your Netatmo app to:\n`{external_url}/auth/external/callback`",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "external_url": "URL externe Home Assistant (ex: https://ha.exemple.com)"
+          "external_url": "External Home Assistant URL"
+        },
+        "data_description": {
+          "client_id": "From your Netatmo app",
+          "client_secret": "From your Netatmo app", 
+          "external_url": "Your Home Assistant external URL (e.g., https://ha.example.com)"
         }
       },
       "auth": {
-        "title": "Autorisation Netatmo",
-        "description": "1. Cliquez sur ce lien pour vous connecter à Netatmo:\n\n[Autoriser Netatmo]({auth_url})\n\n2. Après autorisation, vous serez redirigé vers:\n`{callback_url}?code=XXXXX`\n\n3. Copiez le **code** depuis l'URL et collez-le ci-dessous:",
+        "title": "Authorize Netatmo",
+        "description": "**Step 1:** Click this link to authorize:\n[Authorize Netatmo]({auth_url})\n\n**Step 2:** After authorizing, you'll be redirected to:\n`{callback_url}?code=XXXXX`\n\n**Step 3:** Copy the `code` value from the URL and paste it below:",
         "data": {
-          "auth_code": "Code d'autorisation"
+          "auth_code": "Authorization Code"
+        },
+        "data_description": {
+          "auth_code": "The code from the redirect URL (after ?code=)"
         }
       },
       "reauth_confirm": {
-        "title": "Ré-authentification requise",
-        "description": "L'intégration Netatmo Modular doit être ré-authentifiée.\n\nClient ID: {client_id}"
+        "title": "Re-authenticate Netatmo",
+        "description": "The Netatmo integration needs to be re-authenticated. Click Submit to continue."
       }
     },
     "error": {
-      "cannot_connect": "Impossible de se connecter à Netatmo",
-      "invalid_auth": "Code d'autorisation invalide ou expiré. Réessayez.",
-      "unknown": "Erreur inconnue"
+      "cannot_connect": "Cannot connect to Netatmo",
+      "invalid_auth": "Invalid authorization code. Make sure you copied the full code and try again.",
+      "invalid_client_id": "Client ID is required",
+      "invalid_client_secret": "Client Secret is required",
+      "missing_code": "Authorization code is required",
+      "unknown": "Unknown error occurred"
     },
     "abort": {
-      "already_configured": "Netatmo est déjà configuré",
-      "reauth_successful": "Ré-authentification réussie",
-      "oauth_error": "Erreur lors de l'authentification OAuth",
-      "missing_configuration": "Configuration manquante"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Options Netatmo Modular",
-        "data": {
-          "update_interval": "Intervalle de mise à jour (secondes)"
-        }
-      }
+      "already_configured": "Netatmo is already configured",
+      "reauth_successful": "Re-authentication successful"
     }
   },
   "entity": {
     "climate": {
-      "netatmo_room": {
-        "name": "Thermostat {room_name}"
+      "room": {
+        "name": "{room_name}"
       }
     },
     "sensor": {
       "temperature": {
-        "name": "Température"
+        "name": "Temperature"
       },
       "target_temperature": {
-        "name": "Température cible"
+        "name": "Target temperature"
       },
       "heating_power": {
-        "name": "Puissance de chauffe"
+        "name": "Heating power"
       },
       "setpoint_mode": {
-        "name": "Mode consigne"
+        "name": "Setpoint mode"
       },
       "battery_level": {
-        "name": "Niveau de batterie"
+        "name": "Battery"
       },
       "battery_state": {
-        "name": "État de la batterie"
+        "name": "Battery state"
       },
       "rf_strength": {
-        "name": "Signal RF"
+        "name": "RF signal"
       },
       "wifi_strength": {
-        "name": "Signal WiFi"
+        "name": "WiFi signal"
       },
       "boiler_status": {
-        "name": "État chaudière"
+        "name": "Boiler"
       },
       "reachable": {
-        "name": "Joignable"
+        "name": "Reachable"
       },
       "therm_mode": {
-        "name": "Mode thermostat"
-      }
-    }
-  },
-  "state": {
-    "climate": {
-      "_": {
-        "preset_mode": {
-          "comfort": "Confort",
-          "eco": "Économie",
-          "frost_guard": "Hors-gel",
-          "away": "Absent",
-          "schedule": "Programme"
-        }
+        "name": "Mode"
       }
     }
   }
