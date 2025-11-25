@@ -253,7 +253,7 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         if preset_mode == "schedule":
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
-                mode="schedule",
+                mode="home",
             )
         elif preset_mode == "away":
             # Away = Away
