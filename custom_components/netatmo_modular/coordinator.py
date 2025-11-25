@@ -86,13 +86,11 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _process_data(self, data: dict[str, Any]) -> None:
         """Process the fetched data into structured dictionaries."""
-        self._homes.clear()
-        self._rooms.clear()
-        self._modules.clear()
-
+        # Note: On ne clear pas brutalement pour éviter les scintillements,
+        # on remplace au fur et à mesure.
+        
         homes_list = data.get("homes", [])
         if not homes_list:
-            _LOGGER.debug("No homes found in data")
             return
 
         for home in homes_list:
@@ -101,15 +99,19 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             home_name = home.get("name", "Unknown Home")
-            self._homes[home_id] = {
-                "id": home_id,
-                "name": home_name,
-                "therm_mode": home.get("status", {}).get("therm_mode"),
-                "rooms": [],
-                "modules": [],
-            }
+            
+            # Structure de base si pas existante
+            if home_id not in self._homes:
+                self._homes[home_id] = {
+                    "id": home_id,
+                    "name": home_name,
+                    "rooms": [],
+                    "modules": [],
+                }
+            
+            # Mise à jour status global
+            self._homes[home_id]["therm_mode"] = home.get("status", {}).get("therm_mode")
 
-            # Optimisation: Création des dictionnaires de statut une seule fois
             status_rooms = {r["id"]: r for r in home.get("status", {}).get("rooms", [])}
             status_modules = {m["id"]: m for m in home.get("status", {}).get("modules", [])}
 
@@ -121,7 +123,8 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 room_status = status_rooms.get(room_id, {})
                 
-                self._rooms[room_id] = {
+                # On met à jour ou on crée
+                room_data = {
                     "id": room_id,
                     "home_id": home_id,
                     "home_name": home_name,
@@ -136,7 +139,10 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "anticipating": room_status.get("anticipating"),
                     "open_window": room_status.get("open_window"),
                 }
-                self._homes[home_id]["rooms"].append(room_id)
+                self._rooms[room_id] = room_data
+                
+                if room_id not in self._homes[home_id]["rooms"]:
+                    self._homes[home_id]["rooms"].append(room_id)
 
             # Process modules
             for module in home.get("modules", []):
@@ -157,7 +163,9 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "boiler_status": module_status.get("boiler_status"),
                     "reachable": module_status.get("reachable", True),
                 }
-                self._homes[home_id]["modules"].append(module_id)
+                
+                if module_id not in self._homes[home_id]["modules"]:
+                    self._homes[home_id]["modules"].append(module_id)
 
     async def _save_tokens(self) -> None:
         """Save updated tokens to config entry."""
@@ -178,7 +186,7 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temp: float | None = None,
         fp: str | None = None,
     ) -> bool:
-        """Set room thermostat mode."""
+        """Set room thermostat mode with Optimistic UI update."""
         room = self.get_room(room_id)
         if not room:
             _LOGGER.error("Cannot set mode: Room %s not found", room_id)
@@ -193,6 +201,31 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if success:
+            # --- OPTIMISATION : Mise à jour Optimiste (Immédiate) ---
+            # On fait semblant que la valeur est déjà changée pour que l'UI réagisse instantanément
+            # sans attendre le retour lent de l'API Netatmo.
+            
+            if room_id in self._rooms:
+                if mode == "manual":
+                    self._rooms[room_id]["therm_setpoint_mode"] = "manual"
+                    # Si on a spécifié un Fil Pilote (ex: 'comfort', 'frost_guard'), on l'applique
+                    if fp:
+                        self._rooms[room_id]["therm_setpoint_fp"] = fp
+                    # Si on a spécifié une température, on l'applique
+                    if temp:
+                        self._rooms[room_id]["therm_setpoint_temperature"] = temp
+                else:
+                    # Si on passe en 'home', 'schedule', 'away', 'frost_guard' (mode direct)
+                    # Attention: si mode est 'home' (le preset Schedule), l'API renverra 'schedule'
+                    if mode == "home":
+                        self._rooms[room_id]["therm_setpoint_mode"] = "schedule"
+                    else:
+                        self._rooms[room_id]["therm_setpoint_mode"] = mode
+            
+            # On notifie Home Assistant que les données ont changé (même si c'est du fake temporaire)
+            self.async_update_listeners()
+
+            # Enfin, on lance le vrai rafraichissement pour se synchroniser plus tard
             await self.async_request_refresh()
         
         return success
