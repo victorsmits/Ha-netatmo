@@ -185,9 +185,9 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         if self.hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
 
-        # CORRECTION DU CRASH ICI : On vérifie que la valeur n'est pas None
+        # LA CORRECTION EST ICI :
         heating_power = self._room.get("heating_power_request")
-        if heating_power and heating_power > 0:
+        if heating_power is not None and heating_power > 0:
             return HVACAction.HEATING
 
         return HVACAction.IDLE
