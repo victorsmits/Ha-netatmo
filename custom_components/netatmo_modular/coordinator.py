@@ -92,6 +92,34 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Unexpected error fetching Netatmo data")
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
+    async def async_set_room_mode(
+        self,
+        room_id: str,
+        mode: str,
+        temp: float | None = None,
+    ) -> bool:
+        """Set room thermostat mode."""
+        room = self.get_room(room_id)
+        if not room:
+            _LOGGER.error("Room %s not found", room_id)
+            return False
+
+        home_id = room["home_id"]
+
+        # --- MODIFICATION ICI : Utiliser async_set_state au lieu de async_set_room_thermpoint ---
+        success = await self.api.async_set_state(
+            home_id=home_id,
+            room_id=room_id,
+            mode=mode,
+            temp=temp,
+        )
+
+        if success:
+            # Refresh data
+            await self.async_request_refresh()
+
+        return success
+
     async def _process_data(self, data: dict[str, Any]) -> None:
         """Process the fetched data into structured dictionaries."""
         self._homes = {}

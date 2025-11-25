@@ -14,6 +14,7 @@ from .const import (
     API_HOME_STATUS,
     API_SET_ROOM_THERMPOINT,
     API_SET_THERM_MODE,
+    API_SET_STATE,
     OAUTH2_TOKEN,
 )
 
@@ -242,3 +243,47 @@ class NetatmoApiClient:
                 result["homes"].append(home)
 
         return result
+
+    async def async_set_state(
+        self,
+        home_id: str,
+        room_id: str,
+        mode: str,
+        temp: float | None = None,
+        end_time: int | None = None,
+    ) -> bool:
+        """Set room status using setstate (required for new API)."""
+        _LOGGER.debug(
+            "Setting state: home=%s, room=%s, mode=%s, temp=%s",
+            home_id,
+            room_id,
+            mode,
+            temp,
+        )
+
+        room_data = {
+            "id": room_id,
+            "therm_setpoint_mode": mode,
+        }
+
+        if temp is not None:
+            room_data["therm_setpoint_temperature"] = temp
+
+        if end_time is not None:
+            room_data["therm_setpoint_end_time"] = end_time
+
+        data = {
+            "home": {
+                "id": home_id,
+                "rooms": [room_data],
+            }
+        }
+
+        result = await self._async_request(
+            "POST",
+            API_SET_STATE,
+            json=data, # Attention: setstate attend souvent un JSON body, pas 'data' form-encoded
+        )
+
+        # L'API peut renvoyer "status": "ok" ou juste une confirmation
+        return result.get("status") == "ok" or result.get("time_server") is not None

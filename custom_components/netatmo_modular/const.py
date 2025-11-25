@@ -46,6 +46,7 @@ API_HOMES_DATA: Final = f"{API_BASE_URL}/homesdata"
 API_HOME_STATUS: Final = f"{API_BASE_URL}/homestatus"
 API_SET_ROOM_THERMPOINT: Final = f"{API_BASE_URL}/setroomthermpoint"
 API_SET_THERM_MODE: Final = f"{API_BASE_URL}/setthermmode"
+API_SET_STATE: Final = f"{API_BASE_URL}/setstate"
 
 # Update intervals
 UPDATE_INTERVAL: Final = 300  # 5 minutes
