@@ -80,7 +80,6 @@ NETATMO_PRESET_SCHEDULE: Final = "schedule"
 # HA preset modes mapping
 PRESET_MODES: Final = [
     "comfort",
-    "eco",
     "frost_guard",
     "away",
     "schedule",

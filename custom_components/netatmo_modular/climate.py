@@ -249,18 +249,20 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
         if preset_mode == "schedule":
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
-                mode="schedule",
+                mode="home",
             )
         elif preset_mode == "away":
             # Away est souvent un mode global, mais on tente de le mettre sur la pièce
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
-                mode="away",
+                mode="manual",
+                fp="away"
             )
         elif preset_mode == "frost_guard":
             await self.coordinator.async_set_room_mode(
                 room_id=self._room_id,
-                mode="hg",
+                mode="manual",
+                fp="hg"
             )
         elif preset_mode == "comfort":
             # --- MODIFICATION: On envoie 'fp' = comfort en mode manual ---
@@ -268,13 +270,6 @@ class NetatmoClimate(CoordinatorEntity[NetatmoDataUpdateCoordinator], ClimateEnt
                 room_id=self._room_id,
                 mode="manual",
                 fp="comfort", 
-            )
-        elif preset_mode == "eco":
-            # --- MODIFICATION: On envoie 'fp' = eco en mode manual ---
-            await self.coordinator.async_set_room_mode(
-                room_id=self._room_id,
-                mode="manual",
-                fp="eco",
             )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
