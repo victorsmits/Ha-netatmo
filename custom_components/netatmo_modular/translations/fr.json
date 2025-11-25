@@ -84,5 +84,16 @@
         "name": "Mode"
       }
     }
+  },
+  "state": {
+    "climate": {
+      "preset_mode": {
+        "comfort": "Confort",
+        "frost_guard": "Hors-gel",
+        "away": "Absent",
+        "schedule": "Planning",
+        "manual": "Manuel"
+      }
+    }
   }
 }
