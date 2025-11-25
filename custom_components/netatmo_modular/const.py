@@ -11,7 +11,34 @@ CONF_EXTERNAL_URL: Final = "external_url"
 # OAuth2
 OAUTH2_AUTHORIZE: Final = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN: Final = "https://api.netatmo.com/oauth2/token"
-SCOPES: Final = ["read_thermostat", "write_thermostat", "read_station"]
+
+# --- LISTE DES SCOPES MISE À JOUR ---
+SCOPES: Final = [
+    	"read_station",
+        "read_magellan",
+        "write_magellan",
+        "read_bubendorff",
+        "write_bubendorff",
+        "read_smarther",
+        "write_smarther",
+        "read_thermostat",
+        "write_thermostat",
+        "read_camera",
+        "write_camera",
+        "access_camera",
+        "read_doorbell",
+        "access_doorbell",
+        "read_mx",
+        "write_mx",
+        "read_presence",
+        "write_presence",
+        "access_presence",
+        "read_homecoach",
+        "read_carbonmonoxidedetector",
+        "read_smokedetector",
+        "read_mhs1",
+        "write_mhs1"
+]
 
 # API Endpoints
 API_BASE_URL: Final = "https://api.netatmo.com/api"
