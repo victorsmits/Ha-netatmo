@@ -15,6 +15,12 @@ class HAModularAuth(AbstractAsyncAuth):
         """Initialisation."""
         self._oauth_session = oauth_session
         self._session = session
+        
+        # --- CORRECTIFS PYATMO ---
+        # 1. Pyatmo cherche obligatoirement un attribut 'websession'
+        self.websession = session
+        # 2. Pyatmo a besoin de connaître l'URL de base pour construire les requêtes
+        self.base_url = "https://api.netatmo.com"
 
     async def async_get_access_token(self) -> str:
         """Retourne un token valide."""
@@ -29,9 +35,22 @@ class HAModularAuth(AbstractAsyncAuth):
         params: dict[str, Any] | None = None
     ) -> bytes:
         """Exécute une requête via la session HA."""
-        # pyatmo gère la logique, ici on passe juste la requête
-        headers = {"Authorization": f"Bearer {await self.async_get_access_token()}"}
+        # Obtention du token
+        try:
+            token = await self.async_get_access_token()
+        except Exception as err:
+            logging.getLogger(__name__).error("Erreur lors de la récupération du token: %s", err)
+            raise
+
+        headers = {"Authorization": f"Bearer {token}"}
+        
+        # Si Pyatmo envoie une URL relative (ex: /api/homestatus), on la complète
+        if not url.startswith("http"):
+            url = f"{self.base_url}{url}"
+
         async with self._session.request(
             method, url, headers=headers, json=data, params=params
         ) as resp:
+            # On lève une exception si le statut HTTP n'est pas bon (4xx, 5xx)
+            resp.raise_for_status()
             return await resp.read()
