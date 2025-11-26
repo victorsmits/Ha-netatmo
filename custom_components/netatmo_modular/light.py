@@ -1,88 +1,110 @@
-"""Light platform using Pyatmo."""
+"""Light platform for Netatmo Modular integration."""
 from __future__ import annotations
 
 import logging
-from homeassistant.components.light import LightEntity, ColorMode
+from typing import Any
+
+from homeassistant.components.light import (
+    LightEntity,
+    ColorMode,
+    LightEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN, SUPPORTED_LIGHT_TYPES, DIMMER_TYPES
+from .const import DOMAIN, SUPPORTED_LIGHT_TYPES, DEVICE_TYPE_DIMMER, DEVICE_TYPE_DIMMER2
 from .coordinator import NetatmoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Netatmo light entities."""
+    coordinator: NetatmoDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
+    
     entities = []
-    
-    for home_id, home in coordinator.homes.items():
-        for module_id, module in home.modules.items():
-            if module.device_type in SUPPORTED_LIGHT_TYPES:
-                entities.append(NetatmoLight(coordinator, home_id, module_id))
-    
+    for home in coordinator.homes.values():
+        for module in home.modules.values():
+            if getattr(module, "device_type", None) in SUPPORTED_LIGHT_TYPES:
+                entities.append(NetatmoLight(coordinator, module.entity_id, home.entity_id))
+
     async_add_entities(entities)
 
+
 class NetatmoLight(CoordinatorEntity, LightEntity):
+    """Representation of a Netatmo Light."""
+
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, home_id, module_id):
+    def __init__(self, coordinator: NetatmoDataUpdateCoordinator, module_id: str, home_id: str) -> None:
         super().__init__(coordinator)
-        self._home_id = home_id
         self._module_id = module_id
+        self._home_id = home_id
         self._attr_unique_id = f"netatmo_light_{module_id}"
 
     @property
     def _module(self):
-        return self.coordinator.homes[self._home_id].modules[self._module_id]
-
-    @property
-    def name(self) -> str:
-        return self._module.name
+        return self.coordinator.get_module(self._module_id)
 
     @property
     def device_info(self) -> DeviceInfo:
+        module = self._module
         return DeviceInfo(
             identifiers={(DOMAIN, self._module_id)},
-            name=self.name,
+            name=module.name if module else "Unknown Light",
             manufacturer="Legrand/Netatmo",
-            model=self._module.device_type,
+            model=getattr(module, "device_type", "Unknown"),
             via_device=(DOMAIN, self._home_id),
         )
 
     @property
     def is_on(self) -> bool:
-        # Pyatmo expose souvent 'on' via une propriété ou un get
-        # Sur les versions récentes c'est souvent un attribut direct si dynamique
+        # Pyatmo retourne un booléen pour 'on'
         return getattr(self._module, "on", False)
 
     @property
     def brightness(self) -> int | None:
-        # Pyatmo 0-100
-        bri = getattr(self._module, "brightness", None)
-        if bri is not None: return int(bri * 255 / 100)
+        # Pyatmo : 0-100 ou None
+        val = getattr(self._module, "brightness", None)
+        if val is not None:
+            return int(val * 255 / 100)
         return None
 
     @property
-    def supported_color_modes(self) -> set:
-        if self._module.device_type in DIMMER_TYPES:
+    def supported_color_modes(self) -> set[str] | None:
+        dtype = getattr(self._module, "device_type", "")
+        # Si c'est un dimmer connu ou qu'on a une info de luminosité
+        if dtype in [DEVICE_TYPE_DIMMER, DEVICE_TYPE_DIMMER2] or self.brightness is not None:
             return {ColorMode.BRIGHTNESS}
         return {ColorMode.ONOFF}
 
     @property
-    def color_mode(self) -> str:
-        return ColorMode.BRIGHTNESS if self._module.device_type in DIMMER_TYPES else ColorMode.ONOFF
+    def color_mode(self) -> str | None:
+        if ColorMode.BRIGHTNESS in self.supported_color_modes:
+            return ColorMode.BRIGHTNESS
+        return ColorMode.ONOFF
 
-    async def async_turn_on(self, **kwargs):
-        bri = kwargs.get("brightness")
-        netatmo_bri = int(bri * 100 / 255) if bri else None
-        if netatmo_bri and netatmo_bri < 1: netatmo_bri = 1
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the light on."""
+        brightness = kwargs.get("brightness")
         
-        await self.coordinator.async_set_light_state(
-            self._home_id, self._module_id, on=True, brightness=netatmo_bri
-        )
+        # Si brightness demandé, on convertit 0-255 -> 0-100
+        if brightness is not None:
+            b_pct = int(brightness * 100 / 255)
+            # Pyatmo 'set_state' gère 'brightness'
+            await self._module.async_set_state(on=True, brightness=b_pct)
+        else:
+            await self._module.async_set_state(on=True)
+            
+        self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_set_light_state(self._home_id, self._module_id, on=False)
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the light off."""
+        await self._module.async_set_state(on=False)
+        self.async_write_ha_state()
