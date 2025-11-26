@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_entry_oauth2_flow
-from homeassistant.helpers import network
 
 from .const import (
     DOMAIN,
@@ -28,14 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_AUTH_CODE = "auth_code"
 
-class NetatmoOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implementation):
-    """Netatmo Local OAuth2 implementation."""
-
-    @property
-    def name(self) -> str:
-        """Name of the implementation."""
-        return "Netatmo"
-
 class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Netatmo Modular."""
 
@@ -50,13 +41,6 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Step 1: Get credentials and external URL."""
         errors: dict[str, str] = {}
-
-        # Tentative de deviner l'URL externe
-        default_url = "https://my-home-assistant.io"
-        try:
-            default_url = network.get_url(self.hass, allow_internal=False, allow_ip=False)
-        except Exception:
-            pass
 
         if user_input is not None:
             self._data[CONF_CLIENT_ID] = user_input[CONF_CLIENT_ID].strip()
@@ -76,13 +60,10 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_CLIENT_ID): str,
                     vol.Required(CONF_CLIENT_SECRET): str,
-                    vol.Required(CONF_EXTERNAL_URL, default=default_url): str,
+                    vol.Required(CONF_EXTERNAL_URL, default="https://ha.victorsmits.com"): str,
                 }
             ),
             errors=errors,
-            description_placeholders={
-                "external_url": default_url
-            },
         )
 
     async def async_step_auth(
@@ -109,7 +90,8 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._data["token"] = {
                         "access_token": tokens["access_token"],
                         "refresh_token": tokens["refresh_token"],
-                        "expires_at": tokens.get("expires_at"),
+                        "expires_at": tokens.get("expires_at"), # Déjà en timestamp float grâce à _async_exchange_code
+                        "scope": tokens.get("scope"),
                     }
                     
                     await self.async_set_unique_id(f"netatmo_{self._data[CONF_CLIENT_ID][:8]}")
@@ -132,7 +114,7 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         
         auth_url = f"{OAUTH2_AUTHORIZE}?{urllib.parse.urlencode(auth_params)}"
-
+        
         return self.async_show_form(
             step_id="auth",
             data_schema=vol.Schema(
@@ -146,11 +128,19 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "callback_url": callback_url,
             },
         )
+
     async def _async_exchange_code(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Exchange authorization code for tokens."""
         session = async_get_clientsession(self.hass)
-        
-        # ... (début de la méthode identique) ...
+
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": self._data[CONF_CLIENT_ID],
+            "client_secret": self._data[CONF_CLIENT_SECRET],
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(SCOPES),
+        }
 
         async with session.post(OAUTH2_TOKEN, data=data) as response:
             response_text = await response.text()
@@ -165,10 +155,9 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 import json
                 result = json.loads(response_text)
 
-            # CORRECTION ICI : Utiliser timestamp() (float) et non isoformat() (str)
+            # CORRECTIF : Conversion immédiate en timestamp (float)
             if "expires_at" not in result and "expires_in" in result:
                 expires_at = datetime.now() + timedelta(seconds=result["expires_in"])
-                result["expires_at"] = expires_at.timestamp()  # <--- C'est ici que ça change
+                result["expires_at"] = expires_at.timestamp()
 
-            _LOGGER.info("Successfully obtained Netatmo tokens")
-        return result
+            return result
