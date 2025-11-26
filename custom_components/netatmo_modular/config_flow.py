@@ -12,20 +12,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import network
 
 from .const import (
     DOMAIN,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
     SCOPES,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_EXTERNAL_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# Config keys
-CONF_CLIENT_ID = "client_id"
-CONF_CLIENT_SECRET = "client_secret"
-CONF_EXTERNAL_URL = "external_url"
 CONF_AUTH_CODE = "auth_code"
 
 class NetatmoOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implementation):
@@ -51,19 +51,23 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 1: Get credentials and external URL."""
         errors: dict[str, str] = {}
 
+        # Tentative de deviner l'URL externe
+        default_url = "https://my-home-assistant.io"
+        try:
+            default_url = network.get_url(self.hass, allow_internal=False, allow_ip=False)
+        except Exception:
+            pass
+
         if user_input is not None:
-            # Store the input
             self._data[CONF_CLIENT_ID] = user_input[CONF_CLIENT_ID].strip()
             self._data[CONF_CLIENT_SECRET] = user_input[CONF_CLIENT_SECRET].strip()
             self._data[CONF_EXTERNAL_URL] = user_input.get(CONF_EXTERNAL_URL, "").strip()
             
-            # Validate - client_id and secret must not be empty
             if not self._data[CONF_CLIENT_ID]:
                 errors[CONF_CLIENT_ID] = "invalid_client_id"
             elif not self._data[CONF_CLIENT_SECRET]:
                 errors[CONF_CLIENT_SECRET] = "invalid_client_secret"
             else:
-                # Move to auth step
                 return await self.async_step_auth()
 
         return self.async_show_form(
@@ -72,10 +76,13 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_CLIENT_ID): str,
                     vol.Required(CONF_CLIENT_SECRET): str,
-                    vol.Required(CONF_EXTERNAL_URL, default="https://ha.victorsmits.com"): str,
+                    vol.Required(CONF_EXTERNAL_URL, default=default_url): str,
                 }
             ),
             errors=errors,
+            description_placeholders={
+                "external_url": default_url
+            },
         )
 
     async def async_step_auth(
@@ -84,14 +91,11 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 2: OAuth authorization."""
         errors: dict[str, str] = {}
         
-        # Build callback URL from external URL
         external_url = self._data.get(CONF_EXTERNAL_URL, "").rstrip("/")
         if external_url:
             callback_url = f"{external_url}/auth/external/callback"
         else:
             callback_url = "https://my.home-assistant.io/redirect/oauth"
-        
-        self._data["callback_url"] = callback_url
         
         if user_input is not None:
             auth_code = user_input.get(CONF_AUTH_CODE, "").strip()
@@ -99,18 +103,15 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not auth_code:
                 errors[CONF_AUTH_CODE] = "missing_code"
             else:
-                # Try to exchange the code for tokens
                 try:
                     tokens = await self._async_exchange_code(auth_code, callback_url)
                     
-                    # Success! Create the config entry
                     self._data["token"] = {
                         "access_token": tokens["access_token"],
                         "refresh_token": tokens["refresh_token"],
                         "expires_at": tokens.get("expires_at"),
                     }
                     
-                    # Set unique ID to prevent duplicates
                     await self.async_set_unique_id(f"netatmo_{self._data[CONF_CLIENT_ID][:8]}")
                     self._abort_if_unique_id_configured()
                     
@@ -123,7 +124,6 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.error("Token exchange failed: %s", err)
                     errors["base"] = "invalid_auth"
 
-        # Build the authorization URL
         auth_params = {
             "client_id": self._data[CONF_CLIENT_ID],
             "redirect_uri": callback_url,
@@ -131,11 +131,7 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "state": "netatmo_ha_auth",
         }
         
-        # Properly encode the URL
         auth_url = f"{OAUTH2_AUTHORIZE}?{urllib.parse.urlencode(auth_params)}"
-        
-        _LOGGER.debug("Authorization URL: %s", auth_url)
-        _LOGGER.debug("Callback URL: %s", callback_url)
 
         return self.async_show_form(
             step_id="auth",
@@ -154,7 +150,6 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_exchange_code(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Exchange authorization code for tokens."""
         session = async_get_clientsession(self.hass)
-
         data = {
             "grant_type": "authorization_code",
             "client_id": self._data[CONF_CLIENT_ID],
@@ -164,52 +159,16 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "scope": " ".join(SCOPES),
         }
 
-        _LOGGER.debug(
-            "Exchanging code for tokens - client_id: %s, redirect_uri: %s",
-            self._data[CONF_CLIENT_ID][:8] + "...",
-            redirect_uri,
-        )
-
         async with session.post(OAUTH2_TOKEN, data=data) as response:
             response_text = await response.text()
-            
             if response.status != 200:
-                _LOGGER.error(
-                    "Token exchange failed: status=%s, response=%s",
-                    response.status,
-                    response_text,
-                )
                 raise Exception(f"Token exchange failed: {response_text}")
 
-            try:
-                result = await response.json()
-            except Exception:
-                # Response might already be consumed, parse from text
-                import json
-                result = json.loads(response_text)
+            import json
+            result = json.loads(response_text)
 
-            # Calculate expires_at if not present
             if "expires_at" not in result and "expires_in" in result:
                 expires_at = datetime.now() + timedelta(seconds=result["expires_in"])
                 result["expires_at"] = expires_at.isoformat()
 
-            _LOGGER.info("Successfully obtained Netatmo tokens")
             return result
-
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
-    ) -> FlowResult:
-        """Handle re-authentication."""
-        self._data = dict(entry_data)
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Confirm re-authentication."""
-        if user_input is not None:
-            return await self.async_step_auth()
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-        )

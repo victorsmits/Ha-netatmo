@@ -14,8 +14,8 @@ from homeassistant.components import webhook
 from homeassistant.helpers import device_registry as dr
 
 from .api import NetatmoApiClient, NetatmoAuth
-from .config_flow import NetatmoOAuth2Implementation, CONF_EXTERNAL_URL
-from .const import DOMAIN, OAUTH2_AUTHORIZE, OAUTH2_TOKEN
+from .config_flow import NetatmoOAuth2Implementation
+from .const import DOMAIN, OAUTH2_AUTHORIZE, OAUTH2_TOKEN, CONF_EXTERNAL_URL
 from .coordinator import NetatmoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
