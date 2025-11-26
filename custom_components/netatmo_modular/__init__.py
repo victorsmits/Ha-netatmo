@@ -23,10 +23,10 @@ OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN = "https://api.netatmo.com/oauth2/token"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Netatmo Modular from a config entry."""
+    """Set up Netatmo Modular."""
     hass.data.setdefault(DOMAIN, {})
 
-    # 1. Enregistrement de l'implémentation OAuth2
+    # 1. Register OAuth
     client_id = entry.data.get(CONF_CLIENT_ID)
     client_secret = entry.data.get(CONF_CLIENT_SECRET)
 
@@ -43,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     )
 
-    # --- MIGRATIONS ---
+    # 2. Migration des données (Token & Auth)
     updated_data = entry.data.copy()
     changed = False
 
@@ -63,20 +63,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if changed:
         hass.config_entries.async_update_entry(entry, data=updated_data)
-    
-    # 3. Récupération de l'implémentation
-    implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
-        hass, entry
-    )
-    
-    # 4. Création de la session
+
+    # 3. Setup Auth & Account
+    implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(hass, entry)
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
-    
-    # 5. Initialisation Pyatmo
     auth = HAModularAuth(session, async_get_clientsession(hass))
     account = AsyncAccount(auth)
 
-    # 6. Gestion du Webhook ID
+    # 4. Webhook ID
     if CONF_WEBHOOK_ID not in entry.data:
         new_data = entry.data.copy()
         new_data[CONF_WEBHOOK_ID] = webhook.async_generate_id()
@@ -84,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     webhook_id = entry.data[CONF_WEBHOOK_ID]
 
-    # 7. Initialiser le Coordinator
+    # 5. Coordinator
     coordinator = NetatmoDataUpdateCoordinator(hass, entry, account)
     await coordinator.async_config_entry_first_refresh()
     
@@ -94,12 +88,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "auth": auth
     }
 
-    # 8. Enregistrement du Webhook dans HA
+    # 6. Register Webhook HA
     webhook.async_register(
         hass, DOMAIN, "Netatmo Modular", webhook_id, get_webhook_handler(coordinator)
     )
 
-    # 9. Enregistrement du Webhook chez Netatmo (Cloud)
+    # 7. Register Webhook Cloud (Manual API call)
     external_url = entry.data.get(CONF_EXTERNAL_URL) 
     if not external_url:
          try:
@@ -109,42 +103,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if external_url:
         webhook_url = f"{external_url}{webhook.async_generate_path(webhook_id)}"
-        _LOGGER.info("Configuration du webhook Netatmo sur: %s", webhook_url)
-        
+        _LOGGER.info("Enregistrement Webhook : %s", webhook_url)
         try:
-            # CORRECTIF : On supprime d'abord l'ancien webhook pour nettoyer
+            # Drop old webhook then add new one
             await auth.async_make_api_request("POST", "api/dropwebhook", data={"app_types": "app_thermostat"})
-            
-            # On enregistre le nouveau
             await auth.async_make_api_request("POST", "api/addwebhook", data={"url": webhook_url})
-            _LOGGER.info("Webhook Netatmo enregistré avec succès !")
         except Exception as e:
-            _LOGGER.warning("Erreur lors de l'enregistrement du webhook (vérifiez votre URL externe) : %s", e)
+            _LOGGER.warning("Echec enregistrement webhook (non bloquant): %s", e)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 def get_webhook_handler(coordinator: NetatmoDataUpdateCoordinator):
-    """Crée le handler pour traiter les événements entrants."""
     async def async_handle_webhook(hass, webhook_id, request):
         try:
-            # On lit le message mais on ne l'affiche qu'en debug
-            # Cela évite de spammer les logs
-            message = await request.json()
-            _LOGGER.debug("Webhook Netatmo reçu : %s", message)
-            
-            # On rafraichit les données immédiatement
+            await request.json()
             await coordinator.async_request_refresh()
-            
-        except Exception as ex:
-            _LOGGER.error("Erreur traitement webhook : %s", ex)
-        
+        except Exception:
+            pass
         return None
-
     return async_handle_webhook
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
     webhook.async_unregister(hass, entry.data[CONF_WEBHOOK_ID])
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:

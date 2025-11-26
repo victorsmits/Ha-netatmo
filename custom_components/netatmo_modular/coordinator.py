@@ -37,19 +37,26 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch data from Netatmo API."""
         try:
-            # Pyatmo v8+ : update_topology récupère maisons/pièces/modules
+            # 1. Structure (Topology)
             await self.account.async_update_topology()
-            # update_status récupère les états (températures, vannes, etc)
-            await self.account.async_update_status()
             
-            # On stocke les données brutes pyatmo ou on les structure
+            # 2. Statuts (Températures, etc.)
+            # On boucle sur chaque maison pour mettre à jour son statut individuellement
+            if self.account.homes:
+                for home_id in self.account.homes:
+                    try:
+                        await self.account.async_update_status(home_id)
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Erreur maj statut maison %s: %s", home_id, err
+                        )
+            
             self.homes = self.account.homes
             return self.homes
             
         except Exception as err:
-            raise UpdateFailed(f"Error fetching data: {err}") from err
+            raise UpdateFailed(f"Erreur globale Netatmo: {err}") from err
 
-    # Helpers pour accéder aux données Pyatmo facilement depuis les entités
     def get_room(self, room_id: str):
         for home in self.homes.values():
             if room_id in home.rooms:
