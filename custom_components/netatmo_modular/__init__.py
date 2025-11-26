@@ -2,125 +2,105 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Any
+import json
+import pyatmo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.components import webhook
+from homeassistant.helpers import device_registry as dr
 
-from .api import NetatmoApiClient, NetatmoAuthError
-from .config_flow import NetatmoOAuth2Implementation
-from .const import DOMAIN
+from .api import NetatmoApiClient, NetatmoAuth
+from .config_flow import NetatmoOAuth2Implementation, CONF_EXTERNAL_URL
+from .const import DOMAIN, OAUTH2_AUTHORIZE, OAUTH2_TOKEN
 from .coordinator import NetatmoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [
-    Platform.CLIMATE,
-    Platform.LIGHT
-]
-
-OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
-OAUTH2_TOKEN = "https://api.netatmo.com/oauth2/token"
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.LIGHT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Netatmo Modular from a config entry."""
+    """Set up Netatmo Modular."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Get credentials from config entry
-    client_id = entry.data.get("client_id")
-    client_secret = entry.data.get("client_secret")
-    token_data = entry.data.get("token", {})
-
-    if not client_id or not client_secret:
-        raise ConfigEntryAuthFailed("Missing client credentials")
-
-    # Register OAuth2 implementation for potential reauth
-    config_entry_oauth2_flow.async_register_implementation(
-        hass,
-        DOMAIN,
-        NetatmoOAuth2Implementation(
-            hass,
-            DOMAIN,
-            client_id,
-            client_secret,
-            OAUTH2_AUTHORIZE,
-            OAUTH2_TOKEN,
-        ),
+    # 1. Auth Implementation
+    implementation = config_entry_oauth2_flow.async_get_config_entry_implementation(
+        hass, entry
     )
-
-    # Parse token data
-    access_token = token_data.get("access_token")
-    refresh_token = token_data.get("refresh_token")
-    expires_at_str = token_data.get("expires_at")
-
-    if not access_token or not refresh_token:
-        raise ConfigEntryAuthFailed("Missing tokens, please reconfigure")
-
-    # Parse expires_at
-    token_expires_at = None
-    if expires_at_str:
-        try:
-            if isinstance(expires_at_str, (int, float)):
-                token_expires_at = datetime.fromtimestamp(expires_at_str)
-            else:
-                token_expires_at = datetime.fromisoformat(expires_at_str)
-        except (ValueError, TypeError):
-            _LOGGER.warning("Could not parse token expiry: %s", expires_at_str)
-
-    # Create API client
-    api_client = NetatmoApiClient(
-        hass=hass,
-        client_id=client_id,
-        client_secret=client_secret,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_expires_at=token_expires_at,
-    )
-
-    # Test the connection and refresh token if needed
+    
+    # 2. Session OAuth pour HA
+    session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
+    
+    # 3. Auth Wrapper pour Pyatmo
+    auth_wrapper = NetatmoAuth(async_get_clientsession(hass), session)
+    
+    # 4. Compte Pyatmo
     try:
-        if not api_client.is_token_valid():
-            _LOGGER.info("Token expired or expiring soon, refreshing...")
-            await api_client.async_refresh_token()
-    except NetatmoAuthError as err:
-        raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
+        account = pyatmo.AsyncAccount(auth_wrapper)
     except Exception as err:
-        raise ConfigEntryNotReady(f"Failed to connect to Netatmo: {err}") from err
+        _LOGGER.error("Failed to init pyatmo: %s", err)
+        return False
 
-    # Create coordinator
-    coordinator = NetatmoDataUpdateCoordinator(
-        hass=hass,
-        config_entry=entry,
-        api_client=api_client,
-    )
-
-    # Fetch initial data
+    # 5. Client & Coordinator
+    api_client = NetatmoApiClient(hass, account)
+    coordinator = NetatmoDataUpdateCoordinator(hass, entry, api_client)
+    
     await coordinator.async_config_entry_first_refresh()
-
-    # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Setup platforms
+    # 6. Enregistrement des Devices (Homes)
+    device_registry = dr.async_get(hass)
+    for home in coordinator.homes.values():
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, home.entity_id)},
+            manufacturer="Netatmo",
+            name=home.name,
+            model="Home",
+            configuration_url="https://home.netatmo.com",
+        )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # 7. Webhook
+    webhook_id = entry.entry_id
+    webhook.async_register(
+        hass, DOMAIN, "Netatmo Modular", webhook_id, handle_webhook
+    )
+    
+    external_url = entry.data.get(CONF_EXTERNAL_URL, "").rstrip("/")
+    if external_url:
+        webhook_url = f"{external_url}/api/webhook/{webhook_id}"
+        await api_client.async_register_webhook(webhook_url)
 
     return True
 
-
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Unload."""
+    if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.api.async_drop_webhook()
 
+    webhook.async_unregister(hass, entry.entry_id)
+    
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 
+async def handle_webhook(hass: HomeAssistant, webhook_id: str, request) -> None:
+    """Handle webhook."""
+    try:
+        text_data = await request.text()
+        _LOGGER.debug("WEBHOOK: %s", text_data)
+        data = json.loads(text_data)
+    except Exception:
+        return
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    if DOMAIN in hass.data and webhook_id in hass.data[DOMAIN]:
+        coordinator = hass.data[DOMAIN][webhook_id]
+        await coordinator.async_handle_webhook(data)

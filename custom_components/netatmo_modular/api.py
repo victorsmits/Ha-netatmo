@@ -1,199 +1,93 @@
-"""Netatmo API client."""
+"""Netatmo API client using pyatmo."""
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 from typing import Any
 
-import aiohttp
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from aiohttp import ClientSession
+from pyatmo import AbstractAsyncAuth, NetatmoError, AsyncAccount
 
-from .const import (
-    API_HOMES_DATA,
-    API_HOME_STATUS,
-    API_SET_ROOM_THERMPOINT,
-    API_SET_THERM_MODE,
-    API_SET_STATE,
-    OAUTH2_TOKEN,
-)
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_entry_oauth2_flow
 
 _LOGGER = logging.getLogger(__name__)
 
-
-class NetatmoApiError(Exception):
-    """Base exception for Netatmo API errors."""
-
-
-class NetatmoAuthError(NetatmoApiError):
-    """Authentication error."""
-
-
-class NetatmoApiClient:
-    """Netatmo API client."""
+class NetatmoAuth(AbstractAsyncAuth):
+    """Authentication wrapper for pyatmo."""
 
     def __init__(
         self,
-        hass: HomeAssistant,
-        client_id: str,
-        client_secret: str,
-        access_token: str | None = None,
-        refresh_token: str | None = None,
-        token_expires_at: datetime | None = None,
+        websession: ClientSession,
+        oauth_session: config_entry_oauth2_flow.OAuth2Session,
     ) -> None:
-        """Initialize the API client."""
+        """Initialize the auth."""
+        self._oauth_session = oauth_session
+        self._websession = websession
+
+    async def async_get_access_token(self) -> str:
+        """Return a valid access token."""
+        await self._oauth_session.async_ensure_token_valid()
+        return self._oauth_session.token["access_token"]
+
+    async def async_post_request(self, url: str, params: dict[str, Any] | None = None, data: Any = None, json: Any = None) -> Any:
+        """Make a POST request."""
+        await self._oauth_session.async_ensure_token_valid()
+        headers = {"Authorization": f"Bearer {self._oauth_session.token['access_token']}"}
+        
+        # Pyatmo envoie parfois data, parfois json
+        async with self._websession.post(url, headers=headers, params=params, data=data, json=json) as resp:
+            resp.raise_for_status()
+            return await resp.json() # Pyatmo s'attend souvent à récupérer le JSON directement ou la réponse
+
+    async def async_get_request(self, url: str, params: dict[str, Any] | None = None) -> Any:
+        """Make a GET request."""
+        await self._oauth_session.async_ensure_token_valid()
+        headers = {"Authorization": f"Bearer {self._oauth_session.token['access_token']}"}
+        async with self._websession.get(url, headers=headers, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+class NetatmoApiClient:
+    """High level client."""
+
+    def __init__(self, hass: HomeAssistant, account: AsyncAccount) -> None:
         self.hass = hass
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.access_token = access_token
-        self.refresh_token = refresh_token
-        self.token_expires_at = token_expires_at
-        self._session: aiohttp.ClientSession | None = None
+        self.account = account
 
-    @property
-    def session(self) -> aiohttp.ClientSession:
-        """Get aiohttp session."""
-        if self._session is None:
-            self._session = async_get_clientsession(self.hass)
-        return self._session
+    async def async_update_data(self) -> None:
+        """Fetch all data."""
+        # Cette commande magique de pyatmo récupère homesdata ET homestatus
+        await self.account.async_update_topology()
+        await self.account.async_update_status()
 
-    def is_token_valid(self) -> bool:
-        """Check if the current token is valid."""
-        if not self.access_token or not self.token_expires_at:
+    async def async_register_webhook(self, webhook_url: str) -> bool:
+        """Register webhook (Force app_leg)."""
+        # Pyatmo n'a pas toujours de méthode publique simple pour forcer app_leg
+        # On utilise l'auth wrapper pour faire l'appel brut critique
+        try:
+            _LOGGER.info("Registering webhook: %s", webhook_url)
+            
+            # 1. Enregistrement Legrand (Prioritaire)
+            await self.account.auth.async_post_request(
+                "https://api.netatmo.com/api/addwebhook",
+                data={"url": webhook_url, "app_type": "app_leg"}
+            )
+            _LOGGER.info("SUCCESS: Registered 'app_leg' webhook")
+            
+            # 2. Enregistrement Standard
+            await self.account.auth.async_post_request(
+                "https://api.netatmo.com/api/addwebhook",
+                data={"url": webhook_url}
+            )
+            return True
+        except Exception as err:
+            _LOGGER.error("Webhook registration failed: %s", err)
             return False
-        return datetime.now() < (self.token_expires_at - timedelta(minutes=10))
 
-    async def async_refresh_token(self) -> dict[str, Any]:
-        """Refresh the access token."""
-        if not self.refresh_token:
-            raise NetatmoAuthError("No refresh token available")
-
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-        }
-
-        async with self.session.post(OAUTH2_TOKEN, data=data) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise NetatmoAuthError(f"Token refresh failed: {error_text}")
-
-            result = await response.json()
-            self.access_token = result["access_token"]
-            self.refresh_token = result["refresh_token"]
-            self.token_expires_at = datetime.now() + timedelta(seconds=result.get("expires_in", 10800))
-            return {
-                "access_token": self.access_token,
-                "refresh_token": self.refresh_token,
-                "expires_at": self.token_expires_at.isoformat(),
-            }
-
-    async def _async_request(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
-        """Make an authenticated API request."""
-        if not self.is_token_valid():
-            await self.async_refresh_token()
-
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json",
-        }
-        if "headers" in kwargs:
-            headers.update(kwargs.pop("headers"))
-
-        async with self.session.request(method, url, headers=headers, **kwargs) as response:
-            if response.status == 403:
-                await self.async_refresh_token()
-                headers["Authorization"] = f"Bearer {self.access_token}"
-                async with self.session.request(method, url, headers=headers, **kwargs) as retry_resp:
-                    if retry_resp.status != 200:
-                        error_text = await retry_resp.text()
-                        raise NetatmoApiError(f"API request failed: {retry_resp.status} - {error_text}")
-                    return await retry_resp.json()
-
-            if response.status != 200:
-                error_text = await response.text()
-                raise NetatmoApiError(f"API request failed: {response.status} - {error_text}")
-
-            return await response.json()
-
-    async def async_get_full_data(self) -> dict[str, Any]:
-        """Get complete data: homes + status for each home."""
-        result = await self._async_request("GET", API_HOMES_DATA)
-        homes_data = result.get("body", {})
-        homes = homes_data.get("homes", [])
-
-        result = {
-            "homes": [],
-            "user": homes_data.get("user", {}),
-        }
-
-        for home in homes:
-            home_id = home.get("id")
-            if not home_id:
-                continue
-            try:
-                status_resp = await self._async_request("GET", API_HOME_STATUS, params={"home_id": home_id})
-                status = status_resp.get("body", {}).get("home", {})
-                if not status:
-                    _LOGGER.warning("Empty status for home %s", home_id)
-                
-                home_with_status = {**home, "status": status}
-                result["homes"].append(home_with_status)
-            except NetatmoApiError as err:
-                _LOGGER.warning("Failed to get status for home %s: %s", home_id, err)
-                result["homes"].append(home)
-
-        return result
-
-    async def async_set_state(
-        self,
-        home_id: str,
-        room_id: str,
-        mode: str,
-        temp: float | None = None,
-        fp: str | None = None,
-    ) -> bool:
-        """Set room thermostat state."""
-        room_data = {"id": room_id, "therm_setpoint_mode": mode}
-        if temp is not None:
-            room_data["therm_setpoint_temperature"] = temp
-        if fp is not None:
-            room_data["therm_setpoint_fp"] = fp
-
-        data = {"home": {"id": home_id, "rooms": [room_data]}}
-        result = await self._async_request("POST", API_SET_STATE, json=data)
-        return result.get("status") == "ok" or result.get("time_server") is not None
-
-    async def async_set_module_state(
-        self,
-        home_id: str,
-        module_id: str,
-        on: bool | None = None,
-        brightness: int | None = None,
-        bridge_id: str | None = None, # <--- PARAMÈTRE AJOUTÉ
-    ) -> bool:
-        """Set module state (Light/Plug)."""
-        module_data = {"id": module_id}
-        
-        # Pour les appareils Zigbee, on ajoute le pont si connu
-        if bridge_id:
-            module_data["bridge"] = bridge_id
-
-        if on is not None:
-            module_data["on"] = on
-        if brightness is not None:
-            module_data["brightness"] = brightness
-
-        data = {"home": {"id": home_id, "modules": [module_data]}}
-        
-        _LOGGER.debug("Setting module state: %s", data)
-        result = await self._async_request("POST", API_SET_STATE, json=data)
-        return result.get("status") == "ok" or result.get("time_server") is not None
-
-    async def async_set_therm_mode(self, home_id: str, mode: str) -> bool:
-        """Set home thermostat mode."""
-        data = {"home_id": home_id, "mode": mode}
-        result = await self._async_request("POST", API_SET_THERM_MODE, data=data)
-        return result.get("status") == "ok"
+    async def async_drop_webhook(self) -> None:
+        """Drop webhooks."""
+        try:
+            await self.account.auth.async_post_request("https://api.netatmo.com/api/dropwebhook", data={"app_type": "app_leg"})
+            await self.account.auth.async_post_request("https://api.netatmo.com/api/dropwebhook", data={})
+        except Exception:
+            pass
