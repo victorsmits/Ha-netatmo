@@ -53,14 +53,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     token = updated_data.get("token", {})
     if token and isinstance(token.get("expires_at"), str):
-        _LOGGER.warning("Format de token invalide détecté (str). Conversion en timestamp (float)...")
         try:
             dt = datetime.fromisoformat(token["expires_at"])
             token["expires_at"] = dt.timestamp()
             updated_data["token"] = token
             changed = True
-        except Exception as err:
-            _LOGGER.error("Echec de la migration du token: %s", err)
+        except Exception:
+            pass
 
     if changed:
         hass.config_entries.async_update_entry(entry, data=updated_data)
@@ -92,7 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "account": account,
-        "auth": auth # Stocké pour usage futur si besoin
+        "auth": auth
     }
 
     # 8. Enregistrement du Webhook dans HA
@@ -110,13 +109,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if external_url:
         webhook_url = f"{external_url}{webhook.async_generate_path(webhook_id)}"
-        _LOGGER.info("Enregistrement du webhook Netatmo sur: %s", webhook_url)
+        _LOGGER.info("Configuration du webhook Netatmo sur: %s", webhook_url)
+        
         try:
-            # CORRECTIF WEBHOOK : Appel direct API car méthode manquante dans pyatmo
-            # On utilise 'data' pour passer l'URL en POST (format json supporté par API)
+            # CORRECTIF : On supprime d'abord l'ancien webhook pour nettoyer
+            await auth.async_make_api_request("POST", "api/dropwebhook", data={"app_types": "app_thermostat"})
+            
+            # On enregistre le nouveau
             await auth.async_make_api_request("POST", "api/addwebhook", data={"url": webhook_url})
+            _LOGGER.info("Webhook Netatmo enregistré avec succès !")
         except Exception as e:
-            _LOGGER.warning("Impossible d'enregistrer le webhook chez Netatmo: %s", e)
+            _LOGGER.warning("Erreur lors de l'enregistrement du webhook (vérifiez votre URL externe) : %s", e)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -125,11 +128,17 @@ def get_webhook_handler(coordinator: NetatmoDataUpdateCoordinator):
     """Crée le handler pour traiter les événements entrants."""
     async def async_handle_webhook(hass, webhook_id, request):
         try:
+            # On lit le message mais on ne l'affiche qu'en debug
+            # Cela évite de spammer les logs
             message = await request.json()
-            _LOGGER.debug("Webhook reçu: %s", message)
+            _LOGGER.debug("Webhook Netatmo reçu : %s", message)
+            
+            # On rafraichit les données immédiatement
             await coordinator.async_request_refresh()
+            
         except Exception as ex:
-            _LOGGER.error("Erreur traitement webhook: %s", ex)
+            _LOGGER.error("Erreur traitement webhook : %s", ex)
+        
         return None
 
     return async_handle_webhook
