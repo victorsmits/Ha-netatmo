@@ -146,29 +146,29 @@ class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "callback_url": callback_url,
             },
         )
-
     async def _async_exchange_code(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Exchange authorization code for tokens."""
         session = async_get_clientsession(self.hass)
-        data = {
-            "grant_type": "authorization_code",
-            "client_id": self._data[CONF_CLIENT_ID],
-            "client_secret": self._data[CONF_CLIENT_SECRET],
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(SCOPES),
-        }
+        
+        # ... (début de la méthode identique) ...
 
         async with session.post(OAUTH2_TOKEN, data=data) as response:
             response_text = await response.text()
+            
             if response.status != 200:
+                _LOGGER.error("Token exchange failed: %s", response_text)
                 raise Exception(f"Token exchange failed: {response_text}")
 
-            import json
-            result = json.loads(response_text)
+            try:
+                result = await response.json()
+            except Exception:
+                import json
+                result = json.loads(response_text)
 
+            # CORRECTION ICI : Utiliser timestamp() (float) et non isoformat() (str)
             if "expires_at" not in result and "expires_in" in result:
                 expires_at = datetime.now() + timedelta(seconds=result["expires_in"])
-                result["expires_at"] = expires_at.isoformat()
+                result["expires_at"] = expires_at.timestamp()  # <--- C'est ici que ça change
 
-            return result
+            _LOGGER.info("Successfully obtained Netatmo tokens")
+        return result

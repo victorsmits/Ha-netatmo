@@ -17,8 +17,8 @@ class HAModularAuth(AbstractAsyncAuth):
         self._session = session
         
         self.websession = session
-        # CORRECTIF : On s'assure qu'il n'y a pas de slash à la fin pour éviter les doublons
-        self.base_url = "https://api.netatmo.com"
+        # CORRECTIF CRITIQUE : Le slash à la fin est OBLIGATOIRE car Pyatmo fait une concaténation simple
+        self.base_url = "https://api.netatmo.com/"
 
     async def async_get_access_token(self) -> str:
         """Retourne un token valide."""
@@ -36,19 +36,17 @@ class HAModularAuth(AbstractAsyncAuth):
         try:
             token = await self.async_get_access_token()
         except Exception as err:
-            logging.getLogger(__name__).error("Erreur lors de la récupération du token: %s", err)
+            logging.getLogger(__name__).error("Erreur token: %s", err)
             raise
 
         headers = {"Authorization": f"Bearer {token}"}
         
-        # --- CORRECTIF URL ---
-        # Si l'URL n'est pas complète (pas http...)
+        # Sécurité : Si l'URL n'est pas complète, on la reconstruit proprement
         if not url.startswith("http"):
-            # Si l'URL relative ne commence pas par un slash, on l'ajoute
-            if not url.startswith("/"):
-                url = f"/{url}"
-            # On concatène proprement
-            url = f"{self.base_url}{url}"
+            # On retire le slash initial s'il y en a un pour éviter le double slash
+            # car self.base_url en a déjà un maintenant.
+            clean_path = url.lstrip("/")
+            url = f"{self.base_url}{clean_path}"
 
         async with self._session.request(
             method, url, headers=headers, json=data, params=params
