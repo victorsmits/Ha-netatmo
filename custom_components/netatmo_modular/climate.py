@@ -2,12 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN, MAX_TEMP, MIN_TEMP, NETATMO_TO_PRESET_MAP, PRESET_MODES, PRESET_TO_NETATMO_MAP, PRESET_MANUAL, TEMP_STEP
-from .coordinator import NetatmoDataUpdateCoordinator
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]

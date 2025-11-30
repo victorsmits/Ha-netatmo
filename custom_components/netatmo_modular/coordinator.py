@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from pyatmo import AsyncAccount
 from .const import DOMAIN, UPDATE_INTERVAL
+
+_LOGGER = logging.getLogger(__name__)
 
 class NetatmoDataUpdateCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, account: AsyncAccount) -> None:
@@ -17,17 +20,15 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         try:
             await self.account.async_update_topology()
-            if self.account.homes:
-                for home_id in self.account.homes:
-                    try:
-                        await self.account.async_update_status(home_id)
-                    except Exception as err:
-                        if "No device found" not in str(err):
-                            raise err
+            for home_id in self.account.homes:
+                try:
+                    await self.account.async_update_status(home_id)
+                except Exception:
+                    pass
             self.homes = self.account.homes
             return self.homes
         except Exception as err:
-            raise UpdateFailed(f"Netatmo sync error: {err}") from err
+            raise UpdateFailed(f"Error: {err}") from err
 
     def get_room(self, room_id: str):
         for home in self.homes.values():
@@ -40,6 +41,3 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator):
             if module_id in home.modules:
                 return home.modules[module_id]
         return None
-
-import logging
-_LOGGER = logging.getLogger(__name__)
