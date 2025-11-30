@@ -51,8 +51,8 @@ SCOPES: Final = [
 # API Endpoints
 API_BASE_URL: Final = "https://api.netatmo.com/api"
 
-# Update intervals - 60 Secondes pour être réactif
-UPDATE_INTERVAL: Final = 60
+# Update intervals
+UPDATE_INTERVAL: Final = 300
 
 # Netatmo thermostat modes mapping
 NETATMO_TO_HA_HVAC_MODE: Final = {

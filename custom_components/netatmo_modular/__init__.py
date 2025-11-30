@@ -89,18 +89,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     # 6. Register Webhook HA
-    # On désenregistre l'ancien au cas où
-    try:
-        webhook.async_unregister(hass, webhook_id)
-    except ValueError:
-        pass 
-
     webhook.async_register(
         hass, DOMAIN, "Netatmo Modular", webhook_id, get_webhook_handler(coordinator)
     )
 
     # 7. Register Webhook Cloud (Manual API call)
-    external_url = entry.data.get(CONF_EXTERNAL_URL)
+    external_url = entry.data.get(CONF_EXTERNAL_URL) 
     if not external_url:
          try:
             external_url = hass.components.cloud.async_remote_ui_url()
@@ -109,24 +103,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if external_url:
         webhook_url = f"{external_url}{webhook.async_generate_path(webhook_id)}"
-        _LOGGER.info("Configuration Webhook vers : %s", webhook_url)
-        
-        # --- CORRECTIF WEBHOOK ---
-        # 1. Suppression de l'ancien (dans un bloc try à part pour ne pas bloquer)
+        _LOGGER.info("Enregistrement Webhook : %s", webhook_url)
         try:
-            # CORRECTION ICI: 'app_type' au singulier
-            await auth.async_make_api_request("POST", "api/dropwebhook", data={"app_type": "app_thermostat"})
+            # Drop old webhook then add new one
+            await auth.async_make_api_request("POST", "api/dropwebhook", data={"app_types": "app_thermostat"})
+            await auth.async_make_api_request("POST", "api/addwebhook", data={"url": webhook_url})
         except Exception as e:
-            _LOGGER.debug("Drop webhook ignoré: %s", e)
-
-        # 2. Ajout du nouveau
-        try:
-            # CORRECTION ICI: 'app_type' au singulier + ajout URL
-            await auth.async_make_api_request("POST", "api/addwebhook", data={"url": webhook_url, "app_type": "app_thermostat"})
-            _LOGGER.info("Webhook enregistré avec succès !")
-        except Exception as e:
-            _LOGGER.error("ERREUR ENREGISTREMENT WEBHOOK : %s", e)
-        # -------------------------
+            _LOGGER.warning("Echec enregistrement webhook (non bloquant): %s", e)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -135,20 +118,14 @@ def get_webhook_handler(coordinator: NetatmoDataUpdateCoordinator):
     async def async_handle_webhook(hass, webhook_id, request):
         try:
             await request.json()
-            # On demande un refresh immédiat des données
             await coordinator.async_request_refresh()
-        except Exception as e:
-            _LOGGER.debug("Erreur réception webhook: %s", e)
+        except Exception:
+            pass
         return None
     return async_handle_webhook
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    # Sécurité lors du déchargement
-    try:
-        webhook.async_unregister(hass, entry.data[CONF_WEBHOOK_ID])
-    except ValueError:
-        pass
-
+    webhook.async_unregister(hass, entry.data[CONF_WEBHOOK_ID])
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
