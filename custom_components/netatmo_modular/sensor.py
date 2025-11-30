@@ -1,17 +1,39 @@
+"""Sensor platform for Netatmo Modular integration."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
 from .const import DOMAIN
+from .coordinator import NetatmoDataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class NetatmoSensorEntityDescription(SensorEntityDescription):
+    """Describes a Netatmo sensor entity."""
     value_fn: Callable[[Any], Any] | None = None
+    available_fn: Callable[[Any], bool] | None = None
 
-# Pas de filtrage 'available_fn' pour forcer la création
+# Room sensors
 ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     NetatmoSensorEntityDescription(
         key="temperature",
@@ -46,6 +68,7 @@ ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     ),
 )
 
+# Module sensors
 MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     NetatmoSensorEntityDescription(
         key="battery_level",
@@ -85,28 +108,45 @@ MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     ),
 )
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    entities = []
-    
-    # Création explicite avec boucles sécurisées
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Netatmo sensor entities."""
+    coordinator: NetatmoDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
+    entities: list[SensorEntity] = []
+
+    # Create room sensors
     for home in coordinator.homes.values():
-        # Room Sensors
         for room in home.rooms.values():
             for description in ROOM_SENSOR_DESCRIPTIONS:
-                entities.append(NetatmoRoomSensor(coordinator, room.entity_id, description, home.entity_id))
-        
-        # Module Sensors
+                # MODIFICATION : On ajoute l'entité TOUJOURS, sans vérifier la valeur
+                entities.append(
+                    NetatmoRoomSensor(coordinator, room.entity_id, description, home.entity_id)
+                )
+
+        # Create module sensors
         for module in home.modules.values():
             for description in MODULE_SENSOR_DESCRIPTIONS:
-                entities.append(NetatmoModuleSensor(coordinator, module.entity_id, description, home.entity_id))
-                
+                # MODIFICATION : Idem, on crée l'entité
+                entities.append(
+                    NetatmoModuleSensor(coordinator, module.entity_id, description, home.entity_id)
+                )
+
     async_add_entities(entities)
 
 class NetatmoRoomSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Netatmo room sensor."""
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, room_id, description, home_id):
+    def __init__(
+        self,
+        coordinator: NetatmoDataUpdateCoordinator,
+        room_id: str,
+        description: NetatmoSensorEntityDescription,
+        home_id: str
+    ) -> None:
         super().__init__(coordinator)
         self._room_id = room_id
         self._home_id = home_id
@@ -115,20 +155,38 @@ class NetatmoRoomSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def _room(self):
+        """Get pyatmo room object."""
         return self.coordinator.get_room(self._room_id)
 
     @property
-    def device_info(self):
-        return {"identifiers": {(DOMAIN, self._room_id)}, "name": self._room.name, "manufacturer": "Netatmo", "via_device": (DOMAIN, self._home_id)} if self._room else None
+    def device_info(self) -> DeviceInfo:
+        room = self._room
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._room_id)},
+            name=room.name if room else "Unknown Room",
+            manufacturer="Netatmo",
+            via_device=(DOMAIN, self._home_id),
+        )
 
     @property
-    def native_value(self):
-        return self.entity_description.value_fn(self._room) if self._room else None
+    def native_value(self) -> Any:
+        room = self._room
+        if not room:
+            return None
+        return self.entity_description.value_fn(room)
+
 
 class NetatmoModuleSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Netatmo module sensor."""
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, module_id, description, home_id):
+    def __init__(
+        self,
+        coordinator: NetatmoDataUpdateCoordinator,
+        module_id: str,
+        description: NetatmoSensorEntityDescription,
+        home_id: str
+    ) -> None:
         super().__init__(coordinator)
         self._module_id = module_id
         self._home_id = home_id
@@ -140,10 +198,19 @@ class NetatmoModuleSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.get_module(self._module_id)
 
     @property
-    def device_info(self):
-        mod = self._module
-        return {"identifiers": {(DOMAIN, self._module_id)}, "name": mod.name, "manufacturer": "Netatmo", "model": getattr(mod, "device_type", "Unknown"), "via_device": (DOMAIN, self._home_id)} if mod else None
+    def device_info(self) -> DeviceInfo:
+        module = self._module
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._module_id)},
+            name=module.name if module else "Unknown Module",
+            manufacturer="Netatmo",
+            model=getattr(module, "device_type", "Unknown"),
+            via_device=(DOMAIN, self._home_id),
+        )
 
     @property
-    def native_value(self):
-        return self.entity_description.value_fn(self._module) if self._module else None
+    def native_value(self) -> Any:
+        module = self._module
+        if not module:
+            return None
+        return self.entity_description.value_fn(module)
