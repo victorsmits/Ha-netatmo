@@ -6,7 +6,14 @@ from .const import DOMAIN, SUPPORTED_LIGHT_TYPES
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities(NetatmoLight(coordinator, module.entity_id, home.entity_id) for home in coordinator.homes.values() for module in home.modules.values() if getattr(module, "device_type", None) in SUPPORTED_LIGHT_TYPES)
+    entities = []
+    
+    for home in coordinator.homes.values():
+        for module in home.modules.values():
+            if getattr(module, "device_type", None) in SUPPORTED_LIGHT_TYPES:
+                entities.append(NetatmoLight(coordinator, module.entity_id, home.entity_id))
+                
+    async_add_entities(entities)
 
 class NetatmoLight(CoordinatorEntity, LightEntity):
     _attr_has_entity_name = True
@@ -24,6 +31,7 @@ class NetatmoLight(CoordinatorEntity, LightEntity):
     @property
     def device_info(self):
         mod = self._module
+        if not mod: return None
         return {"identifiers": {(DOMAIN, self._module_id)}, "name": mod.name, "manufacturer": "Legrand/Netatmo", "model": getattr(mod, "device_type", "Unknown"), "via_device": (DOMAIN, self._home_id)}
 
     @property

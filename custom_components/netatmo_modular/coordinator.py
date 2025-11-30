@@ -19,16 +19,25 @@ class NetatmoDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict:
         try:
+            # 1. Topology (Structure)
             await self.account.async_update_topology()
+            
+            # 2. Status (Données) - On ignore les erreurs individuelles
             for home_id in self.account.homes:
                 try:
                     await self.account.async_update_status(home_id)
                 except Exception:
                     pass
+            
             self.homes = self.account.homes
+            
+            # Debug log pour comprendre ce qui est trouvé
+            for h in self.homes.values():
+                _LOGGER.debug("Maison trouvée: %s | Pièces: %d | Modules: %d", h.name, len(h.rooms), len(h.modules))
+                
             return self.homes
         except Exception as err:
-            raise UpdateFailed(f"Error: {err}") from err
+            raise UpdateFailed(f"Netatmo sync error: {err}") from err
 
     def get_room(self, room_id: str):
         for home in self.homes.values():

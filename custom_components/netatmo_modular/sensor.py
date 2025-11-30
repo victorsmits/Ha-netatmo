@@ -10,8 +10,8 @@ from .const import DOMAIN
 @dataclass(frozen=True)
 class NetatmoSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[Any], Any] | None = None
-    available_fn: Callable[[Any], bool] | None = None
 
+# Pas de filtrage 'available_fn' pour forcer la création
 ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     NetatmoSensorEntityDescription(
         key="temperature",
@@ -19,7 +19,7 @@ ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda room: room.therm_measured_temperature,
+        value_fn=lambda room: getattr(room, "therm_measured_temperature", None),
     ),
     NetatmoSensorEntityDescription(
         key="target_temperature",
@@ -27,7 +27,7 @@ ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda room: room.therm_setpoint_temperature,
+        value_fn=lambda room: getattr(room, "therm_setpoint_temperature", None),
     ),
     NetatmoSensorEntityDescription(
         key="heating_power",
@@ -41,7 +41,7 @@ ROOM_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
     NetatmoSensorEntityDescription(
         key="setpoint_mode",
         name="Setpoint Mode",
-        value_fn=lambda room: room.therm_setpoint_mode,
+        value_fn=lambda room: getattr(room, "therm_setpoint_mode", None),
         icon="mdi:thermostat",
     ),
 )
@@ -54,7 +54,6 @@ MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda mod: getattr(mod, "battery_level", None),
-        available_fn=lambda mod: getattr(mod, "battery_level", None) is not None,
     ),
     NetatmoSensorEntityDescription(
         key="rf_strength",
@@ -63,7 +62,6 @@ MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda mod: getattr(mod, "rf_strength", None),
-        available_fn=lambda mod: getattr(mod, "rf_strength", None) is not None,
     ),
     NetatmoSensorEntityDescription(
         key="wifi_strength",
@@ -72,13 +70,11 @@ MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda mod: getattr(mod, "wifi_strength", None),
-        available_fn=lambda mod: getattr(mod, "wifi_strength", None) is not None,
     ),
     NetatmoSensorEntityDescription(
         key="boiler_status",
         name="Boiler Status",
         value_fn=lambda mod: "on" if getattr(mod, "boiler_status", False) else "off",
-        available_fn=lambda mod: getattr(mod, "boiler_status", None) is not None,
         icon="mdi:water-boiler",
     ),
     NetatmoSensorEntityDescription(
@@ -92,16 +88,19 @@ MODULE_SENSOR_DESCRIPTIONS: tuple[NetatmoSensorEntityDescription, ...] = (
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     entities = []
+    
+    # Création explicite avec boucles sécurisées
     for home in coordinator.homes.values():
+        # Room Sensors
         for room in home.rooms.values():
             for description in ROOM_SENSOR_DESCRIPTIONS:
-                if description.value_fn(room) is not None:
-                    entities.append(NetatmoRoomSensor(coordinator, room.entity_id, description, home.entity_id))
+                entities.append(NetatmoRoomSensor(coordinator, room.entity_id, description, home.entity_id))
+        
+        # Module Sensors
         for module in home.modules.values():
             for description in MODULE_SENSOR_DESCRIPTIONS:
-                if description.available_fn and not description.available_fn(module): continue
-                if description.value_fn(module) is None: continue
                 entities.append(NetatmoModuleSensor(coordinator, module.entity_id, description, home.entity_id))
+                
     async_add_entities(entities)
 
 class NetatmoRoomSensor(CoordinatorEntity, SensorEntity):
@@ -120,7 +119,7 @@ class NetatmoRoomSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self):
-        return {"identifiers": {(DOMAIN, self._room_id)}, "name": self._room.name, "manufacturer": "Netatmo", "via_device": (DOMAIN, self._home_id)}
+        return {"identifiers": {(DOMAIN, self._room_id)}, "name": self._room.name, "manufacturer": "Netatmo", "via_device": (DOMAIN, self._home_id)} if self._room else None
 
     @property
     def native_value(self):
@@ -143,7 +142,7 @@ class NetatmoModuleSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self):
         mod = self._module
-        return {"identifiers": {(DOMAIN, self._module_id)}, "name": mod.name, "manufacturer": "Netatmo", "model": getattr(mod, "device_type", "Unknown"), "via_device": (DOMAIN, self._home_id)}
+        return {"identifiers": {(DOMAIN, self._module_id)}, "name": mod.name, "manufacturer": "Netatmo", "model": getattr(mod, "device_type", "Unknown"), "via_device": (DOMAIN, self._home_id)} if mod else None
 
     @property
     def native_value(self):

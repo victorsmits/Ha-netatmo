@@ -8,7 +8,15 @@ from .const import DOMAIN, MAX_TEMP, MIN_TEMP, NETATMO_TO_PRESET_MAP, PRESET_MOD
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities(NetatmoClimate(coordinator, room.entity_id, home.entity_id) for home in coordinator.homes.values() for room in home.rooms.values() if room.modules)
+    entities = []
+    
+    for home in coordinator.homes.values():
+        for room in home.rooms.values():
+            # On vérifie si la pièce a des modules (Thermostat ou Vanne)
+            if room.modules:
+                entities.append(NetatmoClimate(coordinator, room.entity_id, home.entity_id))
+    
+    async_add_entities(entities)
 
 class NetatmoClimate(CoordinatorEntity, ClimateEntity):
     _attr_has_entity_name = True
@@ -33,25 +41,28 @@ class NetatmoClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def device_info(self):
+        if not self._room: return None
         return {"identifiers": {(DOMAIN, self._room_id)}, "name": self._room.name, "manufacturer": "Netatmo", "via_device": (DOMAIN, self._home_id)}
 
     @property
     def current_temperature(self):
-        return self._room.therm_measured_temperature
+        return getattr(self._room, "therm_measured_temperature", None)
 
     @property
     def target_temperature(self):
-        return self._room.therm_setpoint_temperature
+        return getattr(self._room, "therm_setpoint_temperature", None)
 
     @property
     def hvac_mode(self):
-        mode = self._room.therm_setpoint_mode
+        if not self._room: return HVACMode.OFF
+        mode = getattr(self._room, "therm_setpoint_mode", "schedule")
         if mode in ["off", "hg", "frost_guard"]: return HVACMode.OFF
         return HVACMode.AUTO if mode in ["schedule", "home"] else HVACMode.HEAT
 
     @property
     def preset_mode(self):
-        return NETATMO_TO_PRESET_MAP.get(self._room.therm_setpoint_mode)
+        if not self._room: return None
+        return NETATMO_TO_PRESET_MAP.get(getattr(self._room, "therm_setpoint_mode", "schedule"))
 
     async def async_set_temperature(self, **kwargs):
         temp = kwargs.get("temperature")
