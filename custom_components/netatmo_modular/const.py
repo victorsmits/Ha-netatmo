@@ -51,50 +51,60 @@ SCOPES: Final = [
 # API Endpoints
 API_BASE_URL: Final = "https://api.netatmo.com/api"
 
-# Update intervals
-UPDATE_INTERVAL: Final = 300
+# Update intervals - 60 Secondes pour être réactif
+UPDATE_INTERVAL: Final = 60
 
-# API Netatmo Values
-NETATMO_API_SCHEDULE: Final = "schedule"
-NETATMO_API_MANUAL: Final = "manual"
-NETATMO_API_AWAY: Final = "away"
-NETATMO_API_HG: Final = "hg"
-NETATMO_API_FROST_GUARD: Final = "frost_guard"
-NETATMO_API_HOME: Final = "home"
+# Netatmo thermostat modes mapping
+NETATMO_TO_HA_HVAC_MODE: Final = {
+    "schedule": "auto",
+    "away": "off",
+    "hg": "off",
+    "frost_guard": "off",
+    "manual": "heat",
+    "off": "off",
+    "max": "heat",
+}
 
-# Custom HA Presets
-PRESET_SCHEDULE: Final = "home"
-PRESET_MANUAL: Final = "manual"
-PRESET_FROST_GUARD: Final = "frost_guard"
+HA_TO_NETATMO_HVAC_MODE: Final = {
+    "auto": "schedule",
+    "heat": "manual",
+    "off": "away",
+}
 
-# Liste NETTOYÉE des modes disponibles dans l'UI
-# On retire Comfort et Eco qui créent des doublons inutiles pour les pièces
+# Netatmo preset modes
+NETATMO_PRESET_COMFORT: Final = "comfort"
+NETATMO_PRESET_FROST_GUARD: Final = "frost_guard"
+NETATMO_PRESET_AWAY: Final = "away"
+NETATMO_PRESET_SCHEDULE: Final = "home"
+NETATMO_PRESET_ECO: Final = "eco"
+
+# Mappings
+NETATMO_TO_PRESET_MAP: Final[dict[str, str]] = {
+    NETATMO_PRESET_COMFORT: PRESET_COMFORT,
+    NETATMO_PRESET_FROST_GUARD: PRESET_SLEEP,
+    "hg": PRESET_SLEEP,
+    NETATMO_PRESET_AWAY: PRESET_AWAY,
+    NETATMO_PRESET_SCHEDULE: PRESET_HOME,
+    "schedule": PRESET_HOME,
+    NETATMO_PRESET_ECO: PRESET_AWAY,
+}
+
+PRESET_TO_NETATMO_MAP: Final[dict[str, str]] = {
+    PRESET_HOME: NETATMO_PRESET_SCHEDULE,
+    PRESET_AWAY: NETATMO_PRESET_AWAY,
+    PRESET_SLEEP: NETATMO_PRESET_FROST_GUARD,
+    PRESET_COMFORT: NETATMO_PRESET_COMFORT,
+    PRESET_ECO: NETATMO_PRESET_FROST_GUARD, 
+}
+
 PRESET_MODES: Final = [
-    PRESET_SCHEDULE, # Planning
-    PRESET_MANUAL,   # Manuel
-    PRESET_AWAY,     # Absent
-    PRESET_FROST_GUARD, # Hors-gel
+    PRESET_COMFORT,
+    PRESET_SLEEP, 
+    PRESET_AWAY,
+    PRESET_HOME,
 ]
 
-# Mapping Netatmo (API) -> HA Preset
-NETATMO_TO_PRESET_MAP: Final[dict[str, str]] = {
-    NETATMO_API_SCHEDULE: PRESET_SCHEDULE,
-    NETATMO_API_HOME: PRESET_SCHEDULE,
-    NETATMO_API_MANUAL: PRESET_MANUAL,
-    NETATMO_API_AWAY: PRESET_AWAY,
-    NETATMO_API_HG: PRESET_FROST_GUARD,
-    NETATMO_API_FROST_GUARD: PRESET_FROST_GUARD,
-}
-
-# Mapping HA Preset -> Netatmo (API)
-PRESET_TO_NETATMO_MAP: Final[dict[str, str]] = {
-    PRESET_SCHEDULE: NETATMO_API_HOME,
-    PRESET_MANUAL: NETATMO_API_MANUAL,
-    PRESET_AWAY: NETATMO_API_AWAY,
-    PRESET_FROST_GUARD: NETATMO_API_HG,
-}
-
-# Device Types
+# --- DEVICE TYPES ---
 DEVICE_TYPE_THERMOSTAT: Final = "NATherm1"
 DEVICE_TYPE_VALVE: Final = "NRV"
 DEVICE_TYPE_PLUG: Final = "NAPlug"
@@ -102,7 +112,7 @@ DEVICE_TYPE_OTH: Final = "OTH"
 DEVICE_TYPE_OTM: Final = "OTM"
 DEVICE_TYPE_BNS: Final = "BNS"
 
-# Light Types
+# Light Types (Legrand/Netatmo)
 DEVICE_TYPE_LIGHT: Final = "NLL"
 DEVICE_TYPE_DIMMER: Final = "NLF"
 DEVICE_TYPE_DIMMER2: Final = "NLFN"
