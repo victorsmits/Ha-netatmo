@@ -89,12 +89,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     # 6. Register Webhook HA
+    # CORRECTIF : On essaie de désenregistrer l'ancien webhook "coincé" avant d'enregistrer le nouveau
+    try:
+        webhook.async_unregister(hass, webhook_id)
+    except ValueError:
+        pass # Il n'était pas enregistré, c'est normal
+
     webhook.async_register(
         hass, DOMAIN, "Netatmo Modular", webhook_id, get_webhook_handler(coordinator)
     )
 
     # 7. Register Webhook Cloud (Manual API call)
-    external_url = entry.data.get(CONF_EXTERNAL_URL) 
+    external_url = entry.data.get(CONF_EXTERNAL_URL)
     if not external_url:
          try:
             external_url = hass.components.cloud.async_remote_ui_url()
@@ -125,7 +131,12 @@ def get_webhook_handler(coordinator: NetatmoDataUpdateCoordinator):
     return async_handle_webhook
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    webhook.async_unregister(hass, entry.data[CONF_WEBHOOK_ID])
+    # Sécurité lors du déchargement
+    try:
+        webhook.async_unregister(hass, entry.data[CONF_WEBHOOK_ID])
+    except ValueError:
+        pass
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
