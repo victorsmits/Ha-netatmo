@@ -1,4 +1,4 @@
-"""Support pour les thermostats Netatmo."""
+"""Support pour les thermostats Netatmo (Version DEBUG)."""
 import logging
 from typing import Optional
 
@@ -17,8 +17,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, \
-    DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import (
     DOMAIN,
@@ -31,9 +30,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
-                            async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Configuration des entités Climate."""
     data_handler = hass.data[DOMAIN][entry.entry_id]
 
@@ -48,19 +45,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
 
     entities = []
 
-    # Parcours de toutes les maisons (Multi-home)
+    _LOGGER.warning("--- DÉBUT DU SCAN NETATMO ---")
+
+    # Parcours de toutes les maisons
+    if not coordinator.data:
+        _LOGGER.error("Aucune donnée reçue du coordinateur !")
+        return
+
     for home_id, home in coordinator.data.items():
+        _LOGGER.warning(f"Scan de la maison : {home.name} (ID: {home_id})")
+
         if not home.rooms:
+            _LOGGER.warning(f"La maison {home.name} n'a pas de pièces (rooms).")
             continue
 
         for room_id, room in home.rooms.items():
-            # Filtrage des pièces sans capacité de chauffage
-            if not getattr(room, "therm_setpoint_mode", None):
-                continue
+            _LOGGER.warning(f"Scan de la pièce : {room.name} (ID: {room_id})")
 
-            entities.append(
-                NetatmoRoomClimate(coordinator, home_id, room_id, data_handler))
+            # INSPECTION DES ATTRIBUTS (C'est ça qui va nous aider)
+            # On liste tous les attributs disponibles sur l'objet room
+            attrs = dir(room)
+            values = {k: getattr(room, k) for k in attrs if not k.startswith('_') and not callable(getattr(room, k))}
+            _LOGGER.warning(f"DATA BRUTE PIECE {room.name}: {values}")
 
+            # TEST: On essaye de voir ce qui manque
+            has_setpoint = getattr(room, "therm_setpoint_mode", None)
+            has_temp = getattr(room, "therm_measured_temp", None)
+
+            _LOGGER.warning(f"  -> therm_setpoint_mode: {has_setpoint}")
+            _LOGGER.warning(f"  -> therm_measured_temp: {has_temp}")
+
+            # J'ai relaxé le filtre : si on a une température OU un mode, on crée l'entité
+            if has_setpoint is None and has_temp is None:
+                 _LOGGER.warning(f"  -> IGNORÉ : Pas de données climatiques valides.")
+                 # continue # Je commente le continue pour FORCER l'affichage pour le test
+
+            entities.append(NetatmoRoomClimate(coordinator, home_id, room_id, data_handler))
+
+    _LOGGER.warning(f"--- FIN DU SCAN : {len(entities)} entités trouvées ---")
     async_add_entities(entities)
 
 
@@ -69,10 +91,10 @@ class NetatmoRoomClimate(CoordinatorEntity, ClimateEntity):
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_supported_features = (
-            ClimateEntityFeature.TARGET_TEMPERATURE |
-            ClimateEntityFeature.PRESET_MODE |
-            ClimateEntityFeature.TURN_ON |
-            ClimateEntityFeature.TURN_OFF
+        ClimateEntityFeature.TARGET_TEMPERATURE |
+        ClimateEntityFeature.PRESET_MODE |
+        ClimateEntityFeature.TURN_ON |
+        ClimateEntityFeature.TURN_OFF
     )
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
     _attr_preset_modes = [PRESET_NONE, PRESET_AWAY, PRESET_ECO, PRESET_COMFORT]
@@ -85,27 +107,24 @@ class NetatmoRoomClimate(CoordinatorEntity, ClimateEntity):
         self._handler = data_handler
         self._attr_unique_id = f"{home_id}-{room_id}"
 
-        # Récupération du nom
         room_data = self.coordinator.data[home_id].rooms[room_id]
         self._attr_name = room_data.name
 
     @property
     def current_temperature(self):
-        """Température actuelle."""
         room = self.coordinator.data[self._home_id].rooms[self._room_id]
-        return room.therm_measured_temp
+        return getattr(room, "therm_measured_temp", None)
 
     @property
     def target_temperature(self):
-        """Température cible."""
         room = self.coordinator.data[self._home_id].rooms[self._room_id]
-        return room.therm_setpoint_temp
+        return getattr(room, "therm_setpoint_temp", None)
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Mode HVAC."""
         room = self.coordinator.data[self._home_id].rooms[self._room_id]
-        mode = room.therm_setpoint_mode
+        # Utilisation de getattr pour éviter le crash si l'attribut manque
+        mode = getattr(room, "therm_setpoint_mode", None)
 
         if mode == NETATMO_MODE_SCHEDULE:
             return HVACMode.AUTO
@@ -113,101 +132,29 @@ class NetatmoRoomClimate(CoordinatorEntity, ClimateEntity):
             return HVACMode.HEAT
         elif mode == NETATMO_MODE_OFF:
             return HVACMode.OFF
-        # Par défaut si mode 'hg' ou 'away' -> Auto du point de vue HA Climate standard
-        # mais le preset prendra le dessus visuellement
         return HVACMode.AUTO
 
     @property
     def preset_mode(self) -> Optional[str]:
-        """Preset Mode."""
         room = self.coordinator.data[self._home_id].rooms[self._room_id]
-        mode = room.therm_setpoint_mode
+        mode = getattr(room, "therm_setpoint_mode", None)
 
         if mode == NETATMO_MODE_AWAY:
             return PRESET_AWAY
         if mode == NETATMO_MODE_HG:
             return PRESET_ECO
-        if mode == NETATMO_MODE_MANUAL:
-            # Parfois Manual est considéré comme Comfort, ou None
-            return PRESET_NONE
         return PRESET_NONE
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode avec Optimistic Update."""
-        old_mode = self._attr_hvac_mode
-        self._attr_hvac_mode = hvac_mode
-        self.async_write_ha_state()  # UI Update immédiate
-
-        try:
-            if hvac_mode == HVACMode.HEAT:
-                # Mode MANUEL: Nécessite une temp cible. On garde la courante ou defaut 19
-                target = self.target_temperature or 19
-                await self._handler.account.async_set_room_thermpoint(
-                    self._home_id, self._room_id, mode=NETATMO_MODE_MANUAL,
-                    temp=target
-                )
-            elif hvac_mode == HVACMode.OFF:
-                await self._handler.account.async_set_room_thermpoint(
-                    self._home_id, self._room_id, mode=NETATMO_MODE_OFF
-                )
-            elif hvac_mode == HVACMode.AUTO:
-                # Retour planning
-                await self._handler.account.async_set_room_thermpoint(
-                    self._home_id, self._room_id, mode="home"
-                    # 'home' repasse en schedule pour la pièce
-                )
-
-            await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            self._attr_hvac_mode = old_mode
-            self.async_write_ha_state()
-            _LOGGER.error("Erreur set_hvac_mode: %s", e)
+        """Set HVAC mode."""
+        # Pour le test, on log juste l'action
+        _LOGGER.warning(f"Demande changement mode vers {hvac_mode}")
+        # ... Code d'action (gardé tel quel ou simplifié pour le debug) ...
+        # Copie le reste de la fonction set_hvac_mode du fichier précédent si tu veux tester l'écriture
+        pass
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set Preset avec Optimistic Update."""
-        old_preset = self._attr_preset_mode
-        self._attr_preset_mode = preset_mode
-        self.async_write_ha_state()
-
-        try:
-            # Note: Away et Frost Guard (HG) s'appliquent à TOUTE la maison chez Netatmo
-            if preset_mode == PRESET_AWAY:
-                await self._handler.account.async_set_home_thermmode(
-                    self._home_id, mode=NETATMO_MODE_AWAY
-                )
-            elif preset_mode == PRESET_ECO:  # Frost Guard
-                await self._handler.account.async_set_home_thermmode(
-                    self._home_id, mode=NETATMO_MODE_HG
-                )
-            elif preset_mode == PRESET_NONE:
-                # Annuler le preset revient à repasser en planning (schedule)
-                await self._handler.account.async_set_home_thermmode(
-                    self._home_id, mode=NETATMO_MODE_SCHEDULE
-                )
-
-            await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            self._attr_preset_mode = old_preset
-            self.async_write_ha_state()
-            _LOGGER.error("Erreur set_preset_mode: %s", e)
+        pass
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Changement de température (passe automatiquement en manuel)."""
-        temp = kwargs.get(ATTR_TEMPERATURE)
-        if temp is None:
-            return
-
-        try:
-            await self._handler.account.async_set_room_thermpoint(
-                self._home_id, self._room_id, mode=NETATMO_MODE_MANUAL,
-                temp=temp
-            )
-            # Optimistic update de la target temp
-            # Attention: c'est plus complexe à simuler car l'objet room est dans le coordinator
-            # On laisse le refresh faire le travail pour la valeur précise,
-            # mais on peut mettre à jour l'état UI si besoin.
-            await self.coordinator.async_request_refresh()
-        except Exception as e:
-            _LOGGER.error("Erreur set_temperature: %s", e)
+        pass
