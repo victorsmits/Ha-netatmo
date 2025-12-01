@@ -1,20 +1,19 @@
 """Constantes pour l'intégration Mon Netatmo."""
 from homeassistant.const import Platform
 
-DOMAIN = "mon_netatmo"
+# DOIT CORRESPONDRE AU NOM DU DOSSIER
+DOMAIN = "netatmo_modular"
 PLATFORMS = [Platform.CLIMATE]
 
-# Configuration Keys
-CONF_URL = "url" # Pour l'override Cloudflare
+CONF_URL = "url" 
 
-# Netatmo Endpoints
+# Endpoints OAuth
 OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN = "https://api.netatmo.com/oauth2/token"
 
-# Mapping Modes Netatmo <-> HA
-# Netatmo: schedule, manual, away, hg (frost guard), off
+# Constantes utilisées par climate.py (C'est ça qui manquait surement)
 NETATMO_MODE_SCHEDULE = "schedule"
 NETATMO_MODE_MANUAL = "manual"
+NETATMO_MODE_OFF = "off"
 NETATMO_MODE_AWAY = "away"
 NETATMO_MODE_HG = "hg"
-NETATMO_MODE_OFF = "off"

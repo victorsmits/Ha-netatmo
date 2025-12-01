@@ -1,5 +1,5 @@
 {
-  "domain": "mon_netatmo",
+  "domain": "netatmo_modular",
   "name": "Mon Netatmo Custom",
   "codeowners": ["@victor-smits"],
   "config_flow": true,
