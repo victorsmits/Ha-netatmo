@@ -1,4 +1,4 @@
-"""Config flow pour Mon Netatmo avec gestion d'URL personnalisée."""
+"""Config flow pour Mon Netatmo."""
 import logging
 import voluptuous as vol
 
@@ -17,10 +17,8 @@ class FixedUrlOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implement
 
     @property
     def redirect_uri(self) -> str:
-        """Retourne l'URL de callback forcée par l'utilisateur."""
         base_url = self._fixed_url.rstrip("/")
         return f"{base_url}/auth/external/callback"
-
 
 class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):
     """Gère le flow OAuth2."""
@@ -33,21 +31,25 @@ class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, doma
 
     @property
     def extra_authorize_data(self) -> dict:
-        """Scopes nécessaires pour TOUS les appareils Netatmo."""
-        return {
-            "scope": (
-                "read_station read_thermostat write_thermostat "
-                "read_camera write_camera access_camera "
-                "read_presence access_presence "
-                "read_homecoach read_smokedetector "
-                "read_doorbell access_doorbell"
-            )
-        }
+        """Scopes complets pour couvrir tous les produits Netatmo/Legrand."""
+        scopes = [
+            "read_thermostat", "write_thermostat",
+            "read_station", "read_camera", "write_camera", "access_camera",
+            "read_doorbell", "access_doorbell",
+            "read_presence", "access_presence",
+            "read_homecoach", "read_smokedetector",
+            "read_magellan", "write_magellan",  # Souvent critique pour Legrand
+            "read_bubendorff", "write_bubendorff",
+            "read_smarther", "write_smarther",
+            "read_mx", "write_mx",
+            "write_presence", "read_carbonmonoxidedetector",
+            "read_mhs1", "write_mhs1"
+        ]
+        return {"scope": " ".join(scopes)}
 
     async def async_step_user(self, user_input=None):
-        """Étape 1 : Identifiants et URL Optionnelle."""
+        """Étape 1 : Identifiants."""
         errors = {}
-
         try:
             default_url = network.get_url(self.hass, allow_internal=False, allow_ip=False)
         except network.NoURLAvailableError:
@@ -57,31 +59,21 @@ class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, doma
             self.client_id = user_input[CONF_CLIENT_ID]
             self.client_secret = user_input[CONF_CLIENT_SECRET]
             custom_url = user_input.get(CONF_URL)
-
+            
             if custom_url:
                 implementation = FixedUrlOAuth2Implementation(
-                    self.hass,
-                    self.DOMAIN,
-                    self.client_id,
-                    self.client_secret,
-                    OAUTH2_AUTHORIZE,
-                    OAUTH2_TOKEN,
-                    custom_url
+                    self.hass, self.DOMAIN, self.client_id, self.client_secret,
+                    OAUTH2_AUTHORIZE, OAUTH2_TOKEN, custom_url
                 )
             else:
                 implementation = config_entry_oauth2_flow.LocalOAuth2Implementation(
-                    self.hass,
-                    self.DOMAIN,
-                    self.client_id,
-                    self.client_secret,
-                    OAUTH2_AUTHORIZE,
-                    OAUTH2_TOKEN,
+                    self.hass, self.DOMAIN, self.client_id, self.client_secret,
+                    OAUTH2_AUTHORIZE, OAUTH2_TOKEN
                 )
 
             config_entry_oauth2_flow.async_register_implementation(
                 self.hass, self.DOMAIN, implementation
             )
-
             return await self.async_step_pick_implementation()
 
         return self.async_show_form(
@@ -91,12 +83,10 @@ class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, doma
                 vol.Required(CONF_CLIENT_SECRET): str,
                 vol.Optional(CONF_URL, description={"suggested_value": default_url}): str,
             }),
-            errors=errors,
-            description_placeholders={"detected_url": default_url}
+            errors=errors
         )
 
     async def async_oauth_create_entry(self, data: dict) -> config_entries.ConfigEntry:
-        """Sauvegarde finale."""
         data[CONF_CLIENT_ID] = self.client_id
         data[CONF_CLIENT_SECRET] = self.client_secret
         return await super().async_oauth_create_entry(data)
