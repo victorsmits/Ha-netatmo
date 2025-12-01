@@ -1,191 +1,213 @@
-"""Climate platform for Netatmo Modular integration."""
-from __future__ import annotations
-
+"""Support pour les thermostats Netatmo."""
 import logging
-from typing import Any
+from typing import Optional
 
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
-    HVACAction,
     HVACMode,
 )
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
+    PRESET_ECO,
     PRESET_COMFORT,
-    PRESET_HOME,
-    PRESET_SLEEP,
+    PRESET_NONE,
 )
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, \
+    DataUpdateCoordinator
 
 from .const import (
     DOMAIN,
-    MAX_TEMP,
-    MIN_TEMP,
-    NETATMO_PRESET_SCHEDULE,
-    NETATMO_TO_PRESET_MAP,
-    PRESET_MODES,
-    PRESET_TO_NETATMO_MAP,
-    TEMP_STEP,
+    NETATMO_MODE_SCHEDULE,
+    NETATMO_MODE_MANUAL,
+    NETATMO_MODE_OFF,
+    NETATMO_MODE_AWAY,
+    NETATMO_MODE_HG
 )
-from .coordinator import NetatmoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up Netatmo climate entities."""
-    coordinator: NetatmoDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
-    
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                            async_add_entities: AddEntitiesCallback):
+    """Configuration des entités Climate."""
+    data_handler = hass.data[DOMAIN][entry.entry_id]
+
+    async def async_update_data():
+        await data_handler.async_update()
+        return data_handler.homes_data
+
+    coordinator = DataUpdateCoordinator(
+        hass, _LOGGER, name="netatmo_climate", update_method=async_update_data
+    )
+    await coordinator.async_config_entry_first_refresh()
+
     entities = []
-    # Parcourir les maisons et pièces via Pyatmo
-    for home in coordinator.homes.values():
-        for room in home.rooms.values():
-            # Vérifier si la pièce a un thermostat/vanne
-            if room.modules:
-                entities.append(NetatmoClimate(coordinator, room.entity_id, home.entity_id))
+
+    # Parcours de toutes les maisons (Multi-home)
+    for home_id, home in coordinator.data.items():
+        if not home.rooms:
+            continue
+
+        for room_id, room in home.rooms.items():
+            # Filtrage des pièces sans capacité de chauffage
+            if not getattr(room, "therm_setpoint_mode", None):
+                continue
+
+            entities.append(
+                NetatmoRoomClimate(coordinator, home_id, room_id, data_handler))
 
     async_add_entities(entities)
 
 
-class NetatmoClimate(CoordinatorEntity, ClimateEntity):
-    """Representation of a Netatmo climate device."""
+class NetatmoRoomClimate(CoordinatorEntity, ClimateEntity):
+    """Représentation d'une pièce Netatmo."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "netatmo_thermostat"
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_target_temperature_step = TEMP_STEP
-    _attr_min_temp = MIN_TEMP
-    _attr_max_temp = MAX_TEMP
     _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE
-        | ClimateEntityFeature.PRESET_MODE
-        | ClimateEntityFeature.TURN_OFF
-        | ClimateEntityFeature.TURN_ON
+            ClimateEntityFeature.TARGET_TEMPERATURE |
+            ClimateEntityFeature.PRESET_MODE |
+            ClimateEntityFeature.TURN_ON |
+            ClimateEntityFeature.TURN_OFF
     )
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
-    _attr_preset_modes = PRESET_MODES
+    _attr_preset_modes = [PRESET_NONE, PRESET_AWAY, PRESET_ECO, PRESET_COMFORT]
+    _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(self, coordinator: NetatmoDataUpdateCoordinator, room_id: str, home_id: str) -> None:
+    def __init__(self, coordinator, home_id, room_id, data_handler):
         super().__init__(coordinator)
-        self._room_id = room_id
         self._home_id = home_id
-        self._attr_unique_id = f"netatmo_modular_climate_{room_id}"
+        self._room_id = room_id
+        self._handler = data_handler
+        self._attr_unique_id = f"{home_id}-{room_id}"
+
+        # Récupération du nom
+        room_data = self.coordinator.data[home_id].rooms[room_id]
+        self._attr_name = room_data.name
 
     @property
-    def _room(self):
-        return self.coordinator.get_room(self._room_id)
+    def current_temperature(self):
+        """Température actuelle."""
+        room = self.coordinator.data[self._home_id].rooms[self._room_id]
+        return room.therm_measured_temp
 
     @property
-    def device_info(self) -> DeviceInfo:
-        room = self._room
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._room_id)},
-            name=room.name if room else "Unknown Room",
-            manufacturer="Netatmo",
-            via_device=(DOMAIN, self._home_id),
-        )
-
-    @property
-    def current_temperature(self) -> float | None:
-        return self._room.therm_measured_temperature
-
-    @property
-    def target_temperature(self) -> float | None:
-        return self._room.therm_setpoint_temperature
+    def target_temperature(self):
+        """Température cible."""
+        room = self.coordinator.data[self._home_id].rooms[self._room_id]
+        return room.therm_setpoint_temp
 
     @property
     def hvac_mode(self) -> HVACMode:
-        mode = self._room.therm_setpoint_mode
-        if mode == NETATMO_PRESET_SCHEDULE:
+        """Mode HVAC."""
+        room = self.coordinator.data[self._home_id].rooms[self._room_id]
+        mode = room.therm_setpoint_mode
+
+        if mode == NETATMO_MODE_SCHEDULE:
             return HVACMode.AUTO
-        if mode == "manual":
+        elif mode == NETATMO_MODE_MANUAL:
             return HVACMode.HEAT
-        if mode in ["off", "away", "hg", "frost_guard"]:
+        elif mode == NETATMO_MODE_OFF:
             return HVACMode.OFF
+        # Par défaut si mode 'hg' ou 'away' -> Auto du point de vue HA Climate standard
+        # mais le preset prendra le dessus visuellement
         return HVACMode.AUTO
 
     @property
-    def preset_mode(self) -> str | None:
-        mode = self._room.therm_setpoint_mode
-        if mode == "manual":
-            return None 
-        return NETATMO_TO_PRESET_MAP.get(mode)
+    def preset_mode(self) -> Optional[str]:
+        """Preset Mode."""
+        room = self.coordinator.data[self._home_id].rooms[self._room_id]
+        mode = room.therm_setpoint_mode
 
-    @property
-    def hvac_action(self) -> HVACAction | None:
-        if self.hvac_mode == HVACMode.OFF:
-            return HVACAction.OFF
-        power = getattr(self._room, "heating_power_request", 0)
-        if power and power > 0:
-            return HVACAction.HEATING
-        return HVACAction.IDLE
-
-    async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set new target temperature."""
-        temp = kwargs.get("temperature")
-        if temp is None:
-            return
-        
-        # Appel API
-        await self._room.async_therm_set(mode="manual", temp=temp)
-        
-        # --- Optimistic Update ---
-        # On force les valeurs locales pour que l'UI change tout de suite
-        self._room.therm_setpoint_mode = "manual"
-        self._room.therm_setpoint_temperature = temp
-        self.async_write_ha_state()
+        if mode == NETATMO_MODE_AWAY:
+            return PRESET_AWAY
+        if mode == NETATMO_MODE_HG:
+            return PRESET_ECO
+        if mode == NETATMO_MODE_MANUAL:
+            # Parfois Manual est considéré comme Comfort, ou None
+            return PRESET_NONE
+        return PRESET_NONE
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new target hvac mode."""
-        target_mode = None
-        
-        if hvac_mode == HVACMode.OFF:
-            target_mode = "hg" # Frost guard
-        elif hvac_mode == HVACMode.AUTO:
-            target_mode = "home" # Schedule
-        elif hvac_mode == HVACMode.HEAT:
-            # Passage en manuel, on garde la température actuelle comme cible
-            target_mode = "manual"
-            current_temp = self.current_temperature or 20
-            # Appel spécial avec température pour le mode manual
-            await self._room.async_therm_set(mode="manual", temp=current_temp)
-            
-            # Optimistic Update spécifique
-            self._room.therm_setpoint_mode = "manual"
-            self._room.therm_setpoint_temperature = current_temp
-            self.async_write_ha_state()
-            return
+        """Set HVAC mode avec Optimistic Update."""
+        old_mode = self._attr_hvac_mode
+        self._attr_hvac_mode = hvac_mode
+        self.async_write_ha_state()  # UI Update immédiate
 
-        # Appel API pour les modes non-manuel (Auto/Off)
-        if target_mode:
-            await self._room.async_therm_set(mode=target_mode)
-            
-            # --- Optimistic Update ---
-            # Si on passe en 'home', l'API renvoie souvent 'schedule' dans le statut
-            if target_mode == "home":
-                self._room.therm_setpoint_mode = "schedule"
-            else:
-                self._room.therm_setpoint_mode = target_mode
-                
+        try:
+            if hvac_mode == HVACMode.HEAT:
+                # Mode MANUEL: Nécessite une temp cible. On garde la courante ou defaut 19
+                target = self.target_temperature or 19
+                await self._handler.account.async_set_room_thermpoint(
+                    self._home_id, self._room_id, mode=NETATMO_MODE_MANUAL,
+                    temp=target
+                )
+            elif hvac_mode == HVACMode.OFF:
+                await self._handler.account.async_set_room_thermpoint(
+                    self._home_id, self._room_id, mode=NETATMO_MODE_OFF
+                )
+            elif hvac_mode == HVACMode.AUTO:
+                # Retour planning
+                await self._handler.account.async_set_room_thermpoint(
+                    self._home_id, self._room_id, mode="home"
+                    # 'home' repasse en schedule pour la pièce
+                )
+
+            await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            self._attr_hvac_mode = old_mode
             self.async_write_ha_state()
+            _LOGGER.error("Erreur set_hvac_mode: %s", e)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode."""
-        netatmo_mode = PRESET_TO_NETATMO_MAP.get(preset_mode)
-        
-        if netatmo_mode:
-            # Appel API
-            await self._room.async_therm_set(mode=netatmo_mode)
-            
-            # --- Optimistic Update ---
-            self._room.therm_setpoint_mode = netatmo_mode
+        """Set Preset avec Optimistic Update."""
+        old_preset = self._attr_preset_mode
+        self._attr_preset_mode = preset_mode
+        self.async_write_ha_state()
+
+        try:
+            # Note: Away et Frost Guard (HG) s'appliquent à TOUTE la maison chez Netatmo
+            if preset_mode == PRESET_AWAY:
+                await self._handler.account.async_set_home_thermmode(
+                    self._home_id, mode=NETATMO_MODE_AWAY
+                )
+            elif preset_mode == PRESET_ECO:  # Frost Guard
+                await self._handler.account.async_set_home_thermmode(
+                    self._home_id, mode=NETATMO_MODE_HG
+                )
+            elif preset_mode == PRESET_NONE:
+                # Annuler le preset revient à repasser en planning (schedule)
+                await self._handler.account.async_set_home_thermmode(
+                    self._home_id, mode=NETATMO_MODE_SCHEDULE
+                )
+
+            await self.coordinator.async_request_refresh()
+
+        except Exception as e:
+            self._attr_preset_mode = old_preset
             self.async_write_ha_state()
+            _LOGGER.error("Erreur set_preset_mode: %s", e)
+
+    async def async_set_temperature(self, **kwargs) -> None:
+        """Changement de température (passe automatiquement en manuel)."""
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is None:
+            return
+
+        try:
+            await self._handler.account.async_set_room_thermpoint(
+                self._home_id, self._room_id, mode=NETATMO_MODE_MANUAL,
+                temp=temp
+            )
+            # Optimistic update de la target temp
+            # Attention: c'est plus complexe à simuler car l'objet room est dans le coordinator
+            # On laisse le refresh faire le travail pour la valeur précise,
+            # mais on peut mettre à jour l'état UI si besoin.
+            await self.coordinator.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error("Erreur set_temperature: %s", e)

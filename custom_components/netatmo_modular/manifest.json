@@ -1,13 +1,11 @@
 {
-  "domain": "netatmo_modular",
-  "name": "Netatmo Modular",
-  "codeowners": ["@victorsmits"],
+  "domain": "mon_netatmo",
+  "name": "Mon Netatmo Custom",
+  "codeowners": ["@victor-smits"],
   "config_flow": true,
-  "dependencies": ["webhook"], 
-  "documentation": "https://github.com/victorsmits/Ha-netatmo",
-  "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/victorsmits/Ha-netatmo/issues",
+  "dependencies": ["application_credentials"],
+  "documentation": "https://github.com/victorsmits/HA-netatmo",
+  "iot_class": "cloud_polling",
   "requirements": ["pyatmo>=8.0.0"],
-  "version": "2.0.0",
-  "integration_type": "hub"
+  "version": "1.0.0"
 }

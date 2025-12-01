@@ -1,163 +1,107 @@
-"""Config flow for Netatmo Modular integration."""
-from __future__ import annotations
-
+"""Config flow pour Mon Netatmo avec gestion d'URL personnalisée."""
 import logging
-import urllib.parse
-from datetime import datetime, timedelta
-from typing import Any
-
 import voluptuous as vol
+
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_URL
+from homeassistant.helpers import config_entry_oauth2_flow, network
 
-from .const import (
-    DOMAIN,
-    OAUTH2_AUTHORIZE,
-    OAUTH2_TOKEN,
-    SCOPES,
-    CONF_CLIENT_ID,
-    CONF_CLIENT_SECRET,
-    CONF_EXTERNAL_URL,
-)
+from .const import DOMAIN, OAUTH2_AUTHORIZE, OAUTH2_TOKEN
 
-_LOGGER = logging.getLogger(__name__)
 
-CONF_AUTH_CODE = "auth_code"
+class FixedUrlOAuth2Implementation(
+    config_entry_oauth2_flow.LocalOAuth2Implementation):
+    """Implémentation OAuth qui force une URL de base spécifique."""
 
-class NetatmoModularConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Netatmo Modular."""
+    def __init__(self, hass, domain, client_id, client_secret, authorize_url,
+                 token_url, fixed_url):
+        super().__init__(hass, domain, client_id, client_secret, authorize_url,
+                         token_url)
+        self._fixed_url = fixed_url
 
-    VERSION = 1
+    @property
+    def redirect_uri(self) -> str:
+        """Retourne l'URL de callback forcée par l'utilisateur."""
+        base_url = self._fixed_url.rstrip("/")
+        return f"{base_url}/auth/external/callback"
 
-    def __init__(self) -> None:
-        """Initialize the config flow."""
-        self._data: dict[str, Any] = {}
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Step 1: Get credentials and external URL."""
-        errors: dict[str, str] = {}
+class OAuth2FlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
+                        domain=DOMAIN):
+    """Gère le flow OAuth2."""
+
+    DOMAIN = DOMAIN
+
+    @property
+    def logger(self) -> logging.Logger:
+        return logging.getLogger(__name__)
+
+    @property
+    def extra_authorize_data(self) -> dict:
+        """Scopes nécessaires."""
+        return {
+            "scope": "read_thermostat write_thermostat"
+        }
+
+    async def async_step_user(self, user_input=None):
+        """Étape 1 : Identifiants et URL Optionnelle."""
+        errors = {}
+
+        # Tentative de détection URL pour suggestion
+        try:
+            default_url = network.get_url(self.hass, allow_internal=False,
+                                          allow_ip=False)
+        except network.NoURLAvailableError:
+            default_url = ""
 
         if user_input is not None:
-            self._data[CONF_CLIENT_ID] = user_input[CONF_CLIENT_ID].strip()
-            self._data[CONF_CLIENT_SECRET] = user_input[CONF_CLIENT_SECRET].strip()
-            self._data[CONF_EXTERNAL_URL] = user_input.get(CONF_EXTERNAL_URL, "").strip()
-            
-            if not self._data[CONF_CLIENT_ID]:
-                errors[CONF_CLIENT_ID] = "invalid_client_id"
-            elif not self._data[CONF_CLIENT_SECRET]:
-                errors[CONF_CLIENT_SECRET] = "invalid_client_secret"
+            self.client_id = user_input[CONF_CLIENT_ID]
+            self.client_secret = user_input[CONF_CLIENT_SECRET]
+            custom_url = user_input.get(CONF_URL)
+
+            # Choix de l'implémentation
+            if custom_url:
+                implementation = FixedUrlOAuth2Implementation(
+                    self.hass,
+                    self.DOMAIN,
+                    self.client_id,
+                    self.client_secret,
+                    OAUTH2_AUTHORIZE,
+                    OAUTH2_TOKEN,
+                    custom_url
+                )
             else:
-                return await self.async_step_auth()
+                implementation = config_entry_oauth2_flow.LocalOAuth2Implementation(
+                    self.hass,
+                    self.DOMAIN,
+                    self.client_id,
+                    self.client_secret,
+                    OAUTH2_AUTHORIZE,
+                    OAUTH2_TOKEN,
+                )
+
+            # Enregistrement temporaire pour le flow
+            config_entry_oauth2_flow.async_register_implementation(
+                self.hass, self.DOMAIN, implementation
+            )
+
+            return await self.async_step_pick_implementation()
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_CLIENT_ID): str,
-                    vol.Required(CONF_CLIENT_SECRET): str,
-                    vol.Required(CONF_EXTERNAL_URL, default="https://ha.victorsmits.com"): str,
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required(CONF_CLIENT_ID): str,
+                vol.Required(CONF_CLIENT_SECRET): str,
+                vol.Optional(CONF_URL,
+                             description={"suggested_value": default_url}): str,
+            }),
             errors=errors,
+            description_placeholders={"detected_url": default_url}
         )
 
-    async def async_step_auth(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Step 2: OAuth authorization."""
-        errors: dict[str, str] = {}
-        
-        external_url = self._data.get(CONF_EXTERNAL_URL, "").rstrip("/")
-        if external_url:
-            callback_url = f"{external_url}/auth/external/callback"
-        else:
-            callback_url = "https://my.home-assistant.io/redirect/oauth"
-        
-        if user_input is not None:
-            auth_code = user_input.get(CONF_AUTH_CODE, "").strip()
-            
-            if not auth_code:
-                errors[CONF_AUTH_CODE] = "missing_code"
-            else:
-                try:
-                    tokens = await self._async_exchange_code(auth_code, callback_url)
-                    
-                    self._data["token"] = {
-                        "access_token": tokens["access_token"],
-                        "refresh_token": tokens["refresh_token"],
-                        "expires_at": tokens.get("expires_at"), # Déjà en timestamp float grâce à _async_exchange_code
-                        "scope": tokens.get("scope"),
-                    }
-                    
-                    await self.async_set_unique_id(f"netatmo_{self._data[CONF_CLIENT_ID][:8]}")
-                    self._abort_if_unique_id_configured()
-                    
-                    return self.async_create_entry(
-                        title="Netatmo Modular",
-                        data=self._data,
-                    )
-                    
-                except Exception as err:
-                    _LOGGER.error("Token exchange failed: %s", err)
-                    errors["base"] = "invalid_auth"
-
-        auth_params = {
-            "client_id": self._data[CONF_CLIENT_ID],
-            "redirect_uri": callback_url,
-            "scope": " ".join(SCOPES),
-            "state": "netatmo_ha_auth",
-        }
-        
-        auth_url = f"{OAUTH2_AUTHORIZE}?{urllib.parse.urlencode(auth_params)}"
-        
-        return self.async_show_form(
-            step_id="auth",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_AUTH_CODE): str,
-                }
-            ),
-            errors=errors,
-            description_placeholders={
-                "auth_url": auth_url,
-                "callback_url": callback_url,
-            },
-        )
-
-    async def _async_exchange_code(self, code: str, redirect_uri: str) -> dict[str, Any]:
-        """Exchange authorization code for tokens."""
-        session = async_get_clientsession(self.hass)
-
-        data = {
-            "grant_type": "authorization_code",
-            "client_id": self._data[CONF_CLIENT_ID],
-            "client_secret": self._data[CONF_CLIENT_SECRET],
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(SCOPES),
-        }
-
-        async with session.post(OAUTH2_TOKEN, data=data) as response:
-            response_text = await response.text()
-            
-            if response.status != 200:
-                _LOGGER.error("Token exchange failed: %s", response_text)
-                raise Exception(f"Token exchange failed: {response_text}")
-
-            try:
-                result = await response.json()
-            except Exception:
-                import json
-                result = json.loads(response_text)
-
-            # CORRECTIF : Conversion immédiate en timestamp (float)
-            if "expires_at" not in result and "expires_in" in result:
-                expires_at = datetime.now() + timedelta(seconds=result["expires_in"])
-                result["expires_at"] = expires_at.timestamp()
-
-            return result
+    async def async_oauth_create_entry(self,
+                                       data: dict) -> config_entries.ConfigEntry:
+        """Sauvegarde finale."""
+        data[CONF_CLIENT_ID] = self.client_id
+        data[CONF_CLIENT_SECRET] = self.client_secret
+        return await super().async_oauth_create_entry(data)
