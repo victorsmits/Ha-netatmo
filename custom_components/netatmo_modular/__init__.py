@@ -15,11 +15,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Mise en place de l'entrée config."""
     hass.data.setdefault(DOMAIN, {})
 
-    # 1. Récupération des identifiants sauvegardés
     client_id = entry.data.get(CONF_CLIENT_ID)
     client_secret = entry.data.get(CONF_CLIENT_SECRET)
 
-    # 2. Enregistrement de l'implémentation OAuth pour le refresh token
     config_entry_oauth2_flow.async_register_implementation(
         hass,
         DOMAIN,
@@ -33,17 +31,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     )
 
-    # 3. Création de la session
     implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
         hass, entry
     )
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
 
-    # 4. Connexion API via Pyatmo
     try:
         await session.async_ensure_token_valid()
+        # C'est ici que le nouvel api.py va faire le travail d'adaptation
         netatmo_data = api.NetatmoDataHandler(hass, session)
-        await netatmo_data.async_update() # Premier chargement
+        await netatmo_data.async_update()
     except Exception as err:
         _LOGGER.error("Erreur connexion Netatmo: %s", err)
         raise ConfigEntryNotReady from err
