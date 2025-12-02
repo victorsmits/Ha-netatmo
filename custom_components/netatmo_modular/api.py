@@ -1,4 +1,4 @@
-"""API Handler pour pyatmo (Version Robuste & Blindée)."""
+"""API Handler pour pyatmo (Version Stable - Topologie Force)."""
 import logging
 from typing import Any
 
@@ -9,7 +9,7 @@ from homeassistant.helpers import config_entry_oauth2_flow
 _LOGGER = logging.getLogger(__name__)
 
 class AsyncConfigEntryAuth(pyatmo.auth.AbstractAsyncAuth):
-    """Adaptateur d'authentification intelligent."""
+    """Adaptateur d'authentification."""
 
     def __init__(self, session: config_entry_oauth2_flow.OAuth2Session):
         self._session = session
@@ -21,42 +21,28 @@ class AsyncConfigEntryAuth(pyatmo.auth.AbstractAsyncAuth):
 
     async def async_post_api_request(self, endpoint: str, **kwargs: Any) -> Any:
         """Envoi POST avec correction automatique des arguments."""
-        
-        # 1. URL Absolue
         url = endpoint if endpoint.startswith("http") else f"https://api.netatmo.com/{endpoint}"
         
-        # 2. CORRECTION CRITIQUE : Pyatmo vs Aiohttp
-        # Pyatmo passe parfois le payload dans 'params' ou 'data'.
-        # Aiohttp refuse les dictionnaires complexes dans 'params'.
-        # On déplace tout ce qui ressemble à un payload JSON vers le kwarg 'json'.
-        
+        # Correction identique à précédemment pour le setstate
         params = kwargs.get("params")
         data = kwargs.get("data")
         json_payload = kwargs.get("json")
 
-        # Analyse de 'params'
         if params and isinstance(params, dict):
-            # Si params contient la clé 'rooms', 'home' ou 'json', c'est le payload !
-            if "rooms" in params or "home" in params:
-                _LOGGER.debug("API FIX: Déplacement de params[...] vers json")
-                json_payload = params
-                kwargs["params"] = None # On vide params
-            elif "json" in params:
-                _LOGGER.debug("API FIX: Déplacement de params['json'] vers json")
-                json_payload = params["json"]
+            if "rooms" in params or "home" in params or "json" in params:
+                if "json" in params:
+                    json_payload = params["json"]
+                else:
+                    json_payload = params
                 kwargs["params"] = None
 
-        # Analyse de 'data' (au cas où)
         if data and isinstance(data, dict):
              if "rooms" in data or "home" in data:
                  json_payload = data
                  kwargs["data"] = None
 
-        # Mise à jour finale des arguments
         if json_payload:
             kwargs["json"] = json_payload
-
-        # _LOGGER.debug(f"POST {url} | json={kwargs.get('json')}")
 
         return await self._session.async_request("POST", url, **kwargs)
 
@@ -77,10 +63,15 @@ class NetatmoDataHandler:
         self.homes_data = {}
 
     async def async_update(self):
-        """Mise à jour topology."""
+        """Mise à jour des données."""
         try:
+            # CORRECTION : On force update_topology à chaque fois.
+            # update_status est trop fragile pour certains appareils Legrand/Fil Pilote.
+            # Avec un intervalle de 5min, c'est parfaitement safe pour les quotas.
             await self.account.async_update_topology()
+            
             self.homes_data = self.account.homes
+            
         except Exception as err:
             _LOGGER.error("Erreur update Netatmo: %s", err)
             raise err

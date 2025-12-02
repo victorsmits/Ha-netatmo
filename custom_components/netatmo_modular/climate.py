@@ -1,4 +1,4 @@
-"""Support Netatmo Fil Pilote - Final UI & Logic."""
+"""Support Netatmo Fil Pilote - Final UI & Logic Fix."""
 import logging
 import time
 from typing import Optional
@@ -135,9 +135,12 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
                 self._attr_preset_mode = PRESET_ECO
             elif fp_val == NETATMO_VAL_FROST_GUARD: # 'frost_guard'
                 self._attr_preset_mode = PRESET_AWAY
-            else:
-                # Par défaut ou si 'comfort', on met Confort
+            elif fp_val == NETATMO_VAL_COMFORT:
                 self._attr_preset_mode = PRESET_COMFORT
+            else:
+                # Si fp_val est vide ou inconnu en manuel, on garde le dernier état connu
+                if self._attr_preset_mode == PRESET_NONE:
+                    self._attr_preset_mode = PRESET_COMFORT
         else:
             # Fallback
             self._attr_hvac_mode = HVACMode.AUTO
