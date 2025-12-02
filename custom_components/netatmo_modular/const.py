@@ -1,17 +1,14 @@
-"""Constantes pour l'intégration Mon Netatmo."""
+"""Constantes."""
 from homeassistant.const import Platform
 
-# DOIT CORRESPONDRE AU NOM DU DOSSIER
 DOMAIN = "netatmo_modular"
 PLATFORMS = [Platform.CLIMATE]
 
 CONF_URL = "url" 
-
-# Endpoints OAuth
 OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
 OAUTH2_TOKEN = "https://api.netatmo.com/oauth2/token"
 
-# Constantes utilisées par climate.py (C'est ça qui manquait surement)
+# Modes API
 NETATMO_MODE_SCHEDULE = "schedule"
 NETATMO_MODE_MANUAL = "manual"
 NETATMO_MODE_OFF = "off"
