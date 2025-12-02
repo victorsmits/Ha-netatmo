@@ -2,6 +2,7 @@
 import logging
 import time
 from typing import Optional
+from datetime import timedelta
 
 from homeassistant.components.climate import (
     ClimateEntity, ClimateEntityFeature, HVACMode
@@ -43,7 +44,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         return data_handler.homes_data
 
     coordinator = DataUpdateCoordinator(
-        hass, _LOGGER, name="netatmo_climate_ui", update_method=async_update_data
+        hass, 
+        _LOGGER, 
+        name="netatmo_climate_ui", 
+        update_method=async_update_data,
+        update_interval=timedelta(minutes=5) # Polling optimisé 5min
     )
     # Premier chargement des données
     await coordinator.async_config_entry_first_refresh()
@@ -81,14 +86,14 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Informations pour le registre des appareils (Joli affichage)."""
+        """Informations pour le registre des appareils."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._room_id)},
             name=self._attr_name,
             manufacturer="Legrand/Netatmo",
             model="Sortie de Câble Connectée",
-            via_device=(DOMAIN, self._home_id),
             suggested_area=self._attr_name,
+            # via_device retiré pour éviter le warning 2025.12
         )
 
     @callback
@@ -138,7 +143,6 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             elif fp_val == NETATMO_VAL_COMFORT:
                 self._attr_preset_mode = PRESET_COMFORT
             else:
-                # Si fp_val est vide ou inconnu en manuel, on garde le dernier état connu
                 if self._attr_preset_mode == PRESET_NONE:
                     self._attr_preset_mode = PRESET_COMFORT
         else:
@@ -167,7 +171,7 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             # Utilisation de la méthode officielle
             await home.async_set_state({"rooms": [room_payload]})
             
-            # Pas de refresh immédiat (Optimistic UI)
+            # Optimistic UI : Pas de refresh immédiat
             
         except Exception as e:
             _LOGGER.error(f"Erreur envoi commande: {e}")
@@ -175,29 +179,25 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Changement de mode principal."""
-        # UI Optimiste
         self._attr_hvac_mode = hvac_mode
         if hvac_mode != HVACMode.HEAT:
              self._attr_preset_mode = PRESET_NONE
         self.async_write_ha_state()
 
-        # Envoi API
         if hvac_mode == HVACMode.OFF:
             await self._async_push_pyatmo(NETATMO_MODE_OFF)
         elif hvac_mode == HVACMode.AUTO:
-            await self._async_push_pyatmo("home") # "home" = planning pour la room
+            await self._async_push_pyatmo("home")
         elif hvac_mode == HVACMode.HEAT:
             self._attr_preset_mode = PRESET_COMFORT
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_COMFORT)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Changement de preset."""
-        # UI Optimiste
         self._attr_preset_mode = preset_mode
         self._attr_hvac_mode = HVACMode.HEAT
         self.async_write_ha_state()
 
-        # Envoi API
         if preset_mode == PRESET_NONE:
             await self.async_set_hvac_mode(HVACMode.AUTO)
             return
