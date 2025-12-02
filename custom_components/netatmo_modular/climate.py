@@ -1,4 +1,4 @@
-"""Support Netatmo Fil Pilote via Pyatmo (Optimiste & Stable)."""
+"""Support Netatmo Fil Pilote - Stable, Optimiste & Anti-Rebond."""
 import logging
 import time
 from typing import Optional
@@ -15,17 +15,18 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
-# L'import qui faisait planter si const.py n'était pas à jour :
 from .const import DOMAIN, NETATMO_MODE_SCHEDULE, NETATMO_MODE_MANUAL, NETATMO_MODE_OFF
 
 _LOGGER = logging.getLogger(__name__)
 
-# Mapping des valeurs API
+# Mapping
 NETATMO_VAL_COMFORT = "comfort"
 NETATMO_VAL_ECO_MAPPED = "away"
 NETATMO_VAL_FROST_GUARD = "frost_guard"
 
 DEFAULT_MANUAL_DURATION = 43200 
+# Temps en secondes pendant lequel on ignore l'API après une commande
+UPDATE_DEBOUNCE_SECONDS = 30
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     data_handler = hass.data[DOMAIN][entry.entry_id]
@@ -35,7 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         return data_handler.homes_data
 
     coordinator = DataUpdateCoordinator(
-        hass, _LOGGER, name="netatmo_climate_optimistic", update_method=async_update_data
+        hass, _LOGGER, name="netatmo_climate_frozen", update_method=async_update_data
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -65,24 +66,35 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{home_id}-{room_id}"
         self._attr_name = self.coordinator.data[home_id].rooms[room_id].name
         
-        # Initialisation
+        # Pour gérer le délai de mise à jour API
+        self._last_change_time = 0
+        
+        # Initialisation de l'état local
         self._update_attrs_from_coordinator()
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Appelé lors du polling API."""
+        """Appelé quand l'API Netatmo renvoie de nouvelles données."""
+        # --- FIX: LOGIQUE ANTI-REBOND ---
+        # Si on a envoyé une commande il y a moins de 30 secondes,
+        # on ignore la mise à jour API (qui contient surement encore l'ancien état).
+        time_since_change = time.time() - self._last_change_time
+        if time_since_change < UPDATE_DEBOUNCE_SECONDS:
+            _LOGGER.debug(f"Ignorer update API (Debounce actif encore {int(UPDATE_DEBOUNCE_SECONDS - time_since_change)}s)")
+            return
+
         self._update_attrs_from_coordinator()
         self.async_write_ha_state()
 
     def _update_attrs_from_coordinator(self):
-        """Met à jour l'état local depuis l'API."""
+        """Lit l'état réel depuis l'API."""
         try:
             room = self.coordinator.data[self._home_id].rooms[self._room_id]
         except (KeyError, AttributeError):
             return
 
+        # Calcul HVAC Mode
         mode = getattr(room, "therm_setpoint_mode", NETATMO_MODE_SCHEDULE)
-        
         if mode == NETATMO_MODE_SCHEDULE or mode == "home":
             self._attr_hvac_mode = HVACMode.AUTO
         elif mode == NETATMO_MODE_OFF:
@@ -90,6 +102,7 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         else:
             self._attr_hvac_mode = HVACMode.HEAT
 
+        # Calcul Preset Mode
         self._attr_preset_mode = PRESET_NONE
         if self._attr_hvac_mode == HVACMode.HEAT:
             fp_val = getattr(room, "therm_setpoint_fp", None)
@@ -101,6 +114,7 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
                 self._attr_preset_mode = PRESET_AWAY
 
     async def _async_push_pyatmo(self, mode_name, fp_val=None):
+        """Pousse l'état."""
         try:
             home = self._handler.account.homes[self._home_id]
             
@@ -116,21 +130,26 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
 
             _LOGGER.debug(f"Action UI -> API: {room_payload}")
             
-            # Utilisation de la librairie officielle
             await home.async_set_state({"rooms": [room_payload]})
             
         except Exception as e:
             _LOGGER.error(f"Erreur Pyatmo: {e}")
+            # En cas d'erreur technique, on annule le debounce pour re-synchroniser tout de suite
+            self._last_change_time = 0 
             await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        # Optimistic Update
+        # 1. Enregistrement du moment de l'action (Début du Gel)
+        self._last_change_time = time.time()
+
+        # 2. Mise à jour Optimiste Locale
         self._attr_hvac_mode = hvac_mode
         if hvac_mode != HVACMode.HEAT:
              self._attr_preset_mode = PRESET_NONE
         
         self.async_write_ha_state()
 
+        # 3. Envoi Réseau
         if hvac_mode == HVACMode.OFF:
             await self._async_push_pyatmo(NETATMO_MODE_OFF)
         elif hvac_mode == HVACMode.AUTO:
@@ -140,11 +159,15 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_COMFORT)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        # Optimistic Update
+        # 1. Enregistrement du moment de l'action
+        self._last_change_time = time.time()
+
+        # 2. Mise à jour Optimiste
         self._attr_preset_mode = preset_mode
         self._attr_hvac_mode = HVACMode.HEAT
         self.async_write_ha_state()
 
+        # 3. Envoi Réseau
         if preset_mode == PRESET_NONE:
             await self.async_set_hvac_mode(HVACMode.AUTO)
             return
