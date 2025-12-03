@@ -38,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = DataUpdateCoordinator(
         hass, logging.getLogger(__name__), name=f"netatmo_central_{entry.entry_id}",
-        update_method=async_update_data, update_interval=timedelta(minutes=5),
+        update_method=async_update_data, update_interval=timedelta(minutes=1),
     )
 
     try:
