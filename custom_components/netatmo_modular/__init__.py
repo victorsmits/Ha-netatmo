@@ -1,4 +1,4 @@
-"""Initialisation de l'intégration Netatmo Modular (Polling Centralisé)."""
+"""Initialisation de l'intégration Netatmo Modular (Stable)."""
 import logging
 from datetime import timedelta
 
@@ -6,7 +6,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_entry_oauth2_flow
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from . import api
 from .const import DOMAIN, PLATFORMS, OAUTH2_AUTHORIZE, OAUTH2_TOKEN
@@ -14,10 +15,10 @@ from .const import DOMAIN, PLATFORMS, OAUTH2_AUTHORIZE, OAUTH2_TOKEN
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Mise en place de l'entrée config avec Coordinateur Central."""
+    """Setup avec polling centralisé et gestion d'erreur au démarrage."""
     hass.data.setdefault(DOMAIN, {})
     
-    # 1. Setup OAuth
+    # 1. Auth OAuth
     client_id = entry.data.get(CONF_CLIENT_ID)
     client_secret = entry.data.get(CONF_CLIENT_SECRET)
 
@@ -34,37 +35,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await session.async_ensure_token_valid()
         netatmo_data = api.NetatmoDataHandler(hass, session)
-        # On ne fait plus l'update manuel ici, le coordinateur s'en chargera
     except Exception as err:
-        _LOGGER.error("Erreur connexion Netatmo: %s", err)
+        _LOGGER.error("Erreur Auth Netatmo: %s", err)
         return False
 
-    # 2. Création du Coordinateur Central (Polling unique)
+    # 2. Définition de la logique de mise à jour unique
     async def async_update_data():
-        """Fonction unique de mise à jour pour toute l'intégration."""
-        await netatmo_data.async_update()
-        return netatmo_data.homes_data
+        """Fonction qui sera appelée toutes les 5 minutes."""
+        try:
+            await netatmo_data.async_update()
+            return netatmo_data.homes_data
+        except Exception as err:
+            raise UpdateFailed(f"Erreur de mise à jour API: {err}")
 
+    # 3. Création du Coordinateur
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
         name=f"netatmo_central_{entry.entry_id}",
         update_method=async_update_data,
-        update_interval=timedelta(minutes=5), # 5 minutes pour tout le monde
+        update_interval=timedelta(minutes=5),
     )
 
-    # Premier chargement immédiat
-    await coordinator.async_config_entry_first_refresh()
+    # 4. PREMIER CHARGEMENT CRITIQUE
+    # C'est ici qu'on évite l'erreur "raise ConfigEntryNotReady in forwarded platform"
+    # On charge les données AVANT de lancer climate.py
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryNotReady:
+        raise # On laisse HA gérer le retry
+    except Exception as ex:
+        raise ConfigEntryNotReady(f"Echec premier chargement: {ex}") from ex
 
-    # 3. Stockage Global : API + Coordinateur
+    # 5. Stockage Global
     hass.data[DOMAIN][entry.entry_id] = {
         "api": netatmo_data,
         "coordinator": coordinator
     }
 
+    # 6. Lancement des plateformes (Climate)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Déchargement."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
