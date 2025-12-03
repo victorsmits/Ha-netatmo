@@ -1,4 +1,4 @@
-"""API Handler pour pyatmo (Version Stable - Topologie Force)."""
+"""API Handler pour pyatmo (Topology + HomeStatus)."""
 import logging
 from typing import Any
 
@@ -23,7 +23,7 @@ class AsyncConfigEntryAuth(pyatmo.auth.AbstractAsyncAuth):
         """Envoi POST avec correction automatique des arguments."""
         url = endpoint if endpoint.startswith("http") else f"https://api.netatmo.com/{endpoint}"
         
-        # Correction identique à précédemment pour le setstate
+        # Correction pour aiohttp vs pyatmo (Params vs JSON)
         params = kwargs.get("params")
         data = kwargs.get("data")
         json_payload = kwargs.get("json")
@@ -63,15 +63,23 @@ class NetatmoDataHandler:
         self.homes_data = {}
 
     async def async_update(self):
-        """Mise à jour des données."""
+        """Mise à jour complète (Topology + Status)."""
         try:
-            # CORRECTION : On force update_topology à chaque fois.
-            # update_status est trop fragile pour certains appareils Legrand/Fil Pilote.
-            # Avec un intervalle de 5min, c'est parfaitement safe pour les quotas.
+            # 1. On récupère la structure (Maisons, Pièces, Modules)
+            # API: /homesdata
             await self.account.async_update_topology()
             
+            # 2. On récupère l'état VIVANT (Modes, Températures)
+            # API: /homestatus
+            # C'est l'étape qui manquait pour tes radiateurs !
+            for home_id in self.account.homes:
+                try:
+                    await self.account.async_update_status(home_id)
+                except Exception as e:
+                    _LOGGER.warning(f"Impossible de récupérer le statut pour la maison {home_id}: {e}")
+
             self.homes_data = self.account.homes
             
         except Exception as err:
-            _LOGGER.error("Erreur update Netatmo: %s", err)
+            _LOGGER.error("Erreur update Netatmo globale: %s", err)
             raise err

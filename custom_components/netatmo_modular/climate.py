@@ -1,7 +1,7 @@
-"""Support Netatmo Fil Pilote - LECTURE MODULE DIRECT."""
+"""Support Netatmo Fil Pilote - Lecture Status Correcte."""
 import logging
-import pprint
 import time
+from datetime import timedelta
 
 from homeassistant.components.climate import (
     ClimateEntity, ClimateEntityFeature, HVACMode
@@ -9,15 +9,21 @@ from homeassistant.components.climate import (
 from homeassistant.components.climate.const import (
     PRESET_AWAY, PRESET_ECO, PRESET_COMFORT, PRESET_NONE
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
-# Import des constantes
-from .const import DOMAIN, NETATMO_MODE_MANUAL, NETATMO_MODE_OFF
+from .const import (
+    DOMAIN, 
+    NETATMO_MODE_SCHEDULE, 
+    NETATMO_MODE_MANUAL, 
+    NETATMO_MODE_OFF,
+    NETATMO_MODE_AWAY,
+    NETATMO_MODE_HG
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,11 +31,11 @@ _LOGGER = logging.getLogger(__name__)
 NETATMO_VAL_COMFORT = "comfort"
 NETATMO_VAL_ECO_MAPPED = "away"
 NETATMO_VAL_FROST_GUARD = "frost_guard"
-DEFAULT_MANUAL_DURATION = 43200
 
+DEFAULT_MANUAL_DURATION = 43200 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
-                            async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+    # Récupération du contexte global
     data_context = hass.data[DOMAIN][entry.entry_id]
     coordinator = data_context["coordinator"]
     data_handler = data_context["api"]
@@ -39,11 +45,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         if not home.rooms: continue
         for room_id, room in home.rooms.items():
             if hasattr(room, "name"):
-                entities.append(
-                    NetatmoRoomFilPilote(coordinator, home_id, room_id,
-                                         data_handler))
-
-    _LOGGER.warning("--- DEBUG MODULE LECTURE ---")
+                entities.append(NetatmoRoomFilPilote(coordinator, home_id, room_id, data_handler))
+            
     async_add_entities(entities)
 
 
@@ -59,14 +62,14 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         self._home_id = home_id
         self._room_id = room_id
         self._handler = data_handler
-
+        
         self._attr_unique_id = f"{home_id}-{room_id}"
         self._attr_name = self.coordinator.data[home_id].rooms[room_id].name
-
-        # Initialisation
+        
+        # Initialisation par défaut
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_preset_mode = PRESET_NONE
-
+        
         self._update_attrs_from_coordinator()
 
     @property
@@ -84,64 +87,68 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         self._update_attrs_from_coordinator()
         self.async_write_ha_state()
 
-    def _get_module(self):
-        """Récupère l'objet module associé à la pièce."""
-        try:
-            home = self.coordinator.data[self._home_id]
-            room = home.rooms[self._room_id]
-            if hasattr(room, "module_ids") and room.module_ids:
-                module_id = room.module_ids[0]
-                return home.modules.get(module_id)
-        except Exception:
-            pass
-        return None
-
     def _update_attrs_from_coordinator(self):
-        """Lecture intelligente (Room + Module)."""
-        module = self._get_module()
+        """Lecture des données (maintenant peuplées par homestatus)."""
+        try:
+            room = self.coordinator.data[self._home_id].rooms[self._room_id]
+        except (KeyError, AttributeError):
+            return
 
-        # === DEBUG MODULE ===
-        if module:
-            try:
-                # On dump le contenu du module
-                # On utilise __dict__ pour voir les vraies variables internes
-                dump = pprint.pformat(module.__dict__)
-                _LOGGER.warning(f"🔍 MODULE DUMP {self._attr_name}:\n{dump}")
-            except Exception as e:
-                _LOGGER.error(f"Erreur dump module: {e}")
+        # Grâce à homestatus, ces champs ne devraient plus être None
+        mode = getattr(room, "therm_setpoint_mode", NETATMO_MODE_SCHEDULE)
+        fp_val = getattr(room, "therm_setpoint_fp", None)
+
+        # Logique de mapping
+        if mode == NETATMO_MODE_OFF:
+            self._attr_hvac_mode = HVACMode.OFF
+            self._attr_preset_mode = PRESET_NONE
+            
+        elif mode == NETATMO_MODE_SCHEDULE or mode == "home":
+            self._attr_hvac_mode = HVACMode.AUTO
+            self._attr_preset_mode = PRESET_NONE
+            
+        elif mode == NETATMO_MODE_HG:
+            self._attr_hvac_mode = HVACMode.HEAT
+            self._attr_preset_mode = PRESET_AWAY
+            
+        elif mode == NETATMO_MODE_AWAY:
+            self._attr_hvac_mode = HVACMode.HEAT
+            self._attr_preset_mode = PRESET_ECO
+
+        elif mode == NETATMO_MODE_MANUAL:
+            self._attr_hvac_mode = HVACMode.HEAT
+            
+            if fp_val == NETATMO_VAL_ECO_MAPPED:
+                self._attr_preset_mode = PRESET_ECO
+            elif fp_val == NETATMO_VAL_FROST_GUARD:
+                self._attr_preset_mode = PRESET_AWAY
+            elif fp_val == NETATMO_VAL_COMFORT:
+                self._attr_preset_mode = PRESET_COMFORT
+            else:
+                # Si on est en manuel mais que fp_val est vide, on garde l'ancien état ou confort
+                if self._attr_preset_mode == PRESET_NONE:
+                    self._attr_preset_mode = PRESET_COMFORT
         else:
-            _LOGGER.warning(f"⚠️ Aucun module trouvé pour {self._attr_name}")
-        # ====================
-
-        # On essaie de lire sur le module d'abord (plus fiable pour Legrand ?)
-        # Sinon on fallback sur la room (via l'ancienne méthode)
-
-        # NOTE: Je ne change pas la logique de lecture tout de suite pour ne pas tout casser,
-        # j'attends de voir tes logs pour savoir quel champ utiliser (ex: 'fp_mode' sur le module ?)
-
-        # Pour l'instant, on reste sur la lecture Room qui renvoie None
-        # Ce qui explique pourquoi tu es en 'Inconnu' ou 'Auto' par défaut.
-
-        # SI le dump nous montre un champ 'pilot_wire_mode' sur le module, on l'utilisera ici.
+            # Fallback
+            self._attr_hvac_mode = HVACMode.AUTO
+            self._attr_preset_mode = PRESET_NONE
 
     async def _async_push_pyatmo(self, mode_name, fp_val=None):
         try:
             home = self._handler.account.homes[self._home_id]
-            room_payload = {"id": self._room_id,
-                            "therm_setpoint_mode": mode_name}
-
+            room_payload = {"id": self._room_id, "therm_setpoint_mode": mode_name}
+            
             if mode_name == NETATMO_MODE_MANUAL:
                 if fp_val:
                     room_payload["therm_setpoint_fp"] = fp_val
                 room_payload["therm_setpoint_temperature"] = 19
-                room_payload["therm_setpoint_end_time"] = int(
-                    time.time() + DEFAULT_MANUAL_DURATION)
+                room_payload["therm_setpoint_end_time"] = int(time.time() + DEFAULT_MANUAL_DURATION)
 
-            _LOGGER.debug(f"Commande envoyée: {room_payload}")
+            _LOGGER.debug(f"Cmd: {room_payload}")
             await home.async_set_state({"rooms": [room_payload]})
-
+            
         except Exception as e:
-            _LOGGER.error(f"Erreur envoi commande: {e}")
+            _LOGGER.error(f"Erreur cmd: {e}")
             await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -155,8 +162,7 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             await self._async_push_pyatmo("home")
         elif hvac_mode == HVACMode.HEAT:
             self._attr_preset_mode = PRESET_COMFORT
-            await self._async_push_pyatmo(NETATMO_MODE_MANUAL,
-                                          NETATMO_VAL_COMFORT)
+            await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_COMFORT)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         self._attr_preset_mode = preset_mode
@@ -168,12 +174,9 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             return
 
         target = None
-        if preset_mode == PRESET_COMFORT:
-            target = NETATMO_VAL_COMFORT
-        elif preset_mode == PRESET_ECO:
-            target = NETATMO_VAL_ECO_MAPPED
-        elif preset_mode == PRESET_AWAY:
-            target = NETATMO_VAL_FROST_GUARD
+        if preset_mode == PRESET_COMFORT: target = NETATMO_VAL_COMFORT
+        elif preset_mode == PRESET_ECO: target = NETATMO_VAL_ECO_MAPPED 
+        elif preset_mode == PRESET_AWAY: target = NETATMO_VAL_FROST_GUARD
 
         if target:
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, target)
