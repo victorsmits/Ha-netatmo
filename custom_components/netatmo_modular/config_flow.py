@@ -1,4 +1,4 @@
-"""Config flow pour Netatmo Modular avec Options (Fix 2025)."""
+"""Config flow pour Netatmo Modular avec Options Persistantes."""
 import logging
 import voluptuous as vol
 from homeassistant import config_entries
@@ -21,7 +21,6 @@ class FixedUrlOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implement
         return f"{base_url}/auth/external/callback"
 
 class NetatmoFlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):
-    """Gère l'installation."""
     DOMAIN = DOMAIN
     
     @property
@@ -88,26 +87,27 @@ class NetatmoFlowHandler(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, dom
 
 
 class NetatmoOptionsFlowHandler(config_entries.OptionsFlow):
-    """Gère le bouton CONFIGURE."""
+    """Gère la configuration (Options)."""
 
     def __init__(self, config_entry):
-        # CORRECTION : On n'assigne PLUS self.config_entry ici.
-        # Home Assistant le gère automatiquement via la classe parente.
+        # On ne stocke pas config_entry ici pour éviter l'erreur AttributeError
         self.selected_room_id = None
 
     async def async_step_init(self, user_input=None):
         """Etape 1 : Choix de la pièce."""
         rooms_dict = {}
         try:
-            # On utilise self.config_entry (qui est accessible en lecture seule)
-            if DOMAIN in self.hass.data and self.config_entry.entry_id in self.hass.data[DOMAIN]:
-                data = self.hass.data[DOMAIN][self.config_entry.entry_id]
-                coordinator = data["coordinator"]
-                for home_id, home in coordinator.data.items():
-                    if home.rooms:
-                        for r_id, room in home.rooms.items():
-                            if hasattr(room, "name"):
-                                rooms_dict[r_id] = room.name
+            # Récupération sécurisée des données
+            entry_id = self.config_entry.entry_id
+            if DOMAIN in self.hass.data and entry_id in self.hass.data[DOMAIN]:
+                data = self.hass.data[DOMAIN][entry_id]
+                coordinator = data.get("coordinator")
+                if coordinator:
+                    for home_id, home in coordinator.data.items():
+                        if home.rooms:
+                            for r_id, room in home.rooms.items():
+                                if hasattr(room, "name"):
+                                    rooms_dict[r_id] = room.name
             
             if not rooms_dict:
                 return self.async_abort(reason="no_rooms_found")
@@ -127,19 +127,26 @@ class NetatmoOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_configure_room(self, user_input=None):
         """Etape 2 : Configuration des entités."""
-        current_options = dict(self.config_entry.options)
-        rooms_config = current_options.get("rooms_config", {})
+        # On fait une COPIE explicite du dictionnaire pour éviter les problèmes de référence
+        current_options = {k: v for k, v in self.config_entry.options.items()}
+        rooms_config = dict(current_options.get("rooms_config", {}))
+        
+        # Récupération config existante pour pré-remplir
         room_config = rooms_config.get(self.selected_room_id, {})
 
         if user_input is not None:
-            new_rooms_config = rooms_config.copy()
-            new_rooms_config[self.selected_room_id] = {
+            # Mise à jour
+            rooms_config[self.selected_room_id] = {
                 "sensor_entity": user_input.get("sensor_entity"),
                 "input_number_entity": user_input.get("input_number_entity")
             }
-            current_options["rooms_config"] = new_rooms_config
+            
+            current_options["rooms_config"] = rooms_config
+            
+            # Sauvegarde : 'data' écrase les options existantes
             return self.async_create_entry(title="", data=current_options)
 
+        # Formulaire
         schema = vol.Schema({
             vol.Optional("sensor_entity", description={"suggested_value": room_config.get("sensor_entity")}): 
                 selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),

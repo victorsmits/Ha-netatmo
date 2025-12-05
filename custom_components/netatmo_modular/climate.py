@@ -1,18 +1,16 @@
-"""Support Netatmo Fil Pilote - CONFIGURABLE VIA UI."""
+"""Support Netatmo Fil Pilote - HYBRIDE (Config UI + Fallback Auto)."""
 import logging
 import time
 from datetime import timedelta
 
+from homeassistant.util import slugify 
 from homeassistant.components.climate import (
     ClimateEntity, ClimateEntityFeature, HVACMode
 )
 from homeassistant.components.climate.const import (
     PRESET_AWAY, PRESET_ECO, PRESET_COMFORT, PRESET_NONE
 )
-from homeassistant.const import (
-    UnitOfTemperature, 
-    ATTR_TEMPERATURE
-)
+from homeassistant.const import UnitOfTemperature, ATTR_TEMPERATURE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
@@ -20,14 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import (
-    DOMAIN, 
-    NETATMO_MODE_SCHEDULE, 
-    NETATMO_MODE_MANUAL, 
-    NETATMO_MODE_OFF,
-    NETATMO_MODE_AWAY,
-    NETATMO_MODE_HG
-)
+from .const import DOMAIN, NETATMO_MODE_SCHEDULE, NETATMO_MODE_MANUAL, NETATMO_MODE_OFF, NETATMO_MODE_AWAY, NETATMO_MODE_HG
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator = data_context["coordinator"]
     data_handler = data_context["api"]
     
-    # On récupère la configuration utilisateur (Options Flow)
+    # Options
     rooms_config = entry.options.get("rooms_config", {})
 
     entities = []
@@ -49,7 +40,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         if not home.rooms: continue
         for room_id, room in home.rooms.items():
             if hasattr(room, "name"):
-                # Filtrage NLC
                 is_radiator = False
                 if hasattr(room, "modules") and room.modules:
                     for mod in room.modules.values():
@@ -58,25 +48,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                             break
                 
                 if is_radiator:
-                    # On passe la config spécifique à cette pièce
-                    room_conf = rooms_config.get(room_id, {})
-                    entities.append(NetatmoRoomFilPilote(
-                        coordinator, home_id, room_id, data_handler, room_conf
-                    ))
+                    # Config spécifique
+                    conf = rooms_config.get(room_id, {})
+                    entities.append(NetatmoRoomFilPilote(coordinator, home_id, room_id, data_handler, conf))
             
     async_add_entities(entities)
 
 
 class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    
     _attr_supported_features = (
         ClimateEntityFeature.TURN_ON | 
         ClimateEntityFeature.TURN_OFF | 
         ClimateEntityFeature.PRESET_MODE |
         ClimateEntityFeature.TARGET_TEMPERATURE
     )
-    
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]
     _attr_preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
     _enable_turn_on_off_backwards_compatibility = False
@@ -90,14 +76,24 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{home_id}-{room_id}"
         self._attr_name = self.coordinator.data[home_id].rooms[room_id].name
         
-        # --- CONFIGURATION MANUELLE ---
+        # --- CONFIGURATION HYBRIDE ---
+        
+        # 1. Tentative depuis la Config UI
         self._input_number_entity_id = config.get("input_number_entity")
         self._sensor_entity_id = config.get("sensor_entity")
         
-        # Si pas configuré, on loggue un info (pas une erreur)
-        if not self._input_number_entity_id:
-            _LOGGER.debug(f"Pas de consigne configurée pour {self._attr_name}")
-        
+        # 2. Fallback "Magic Link" (si non configuré)
+        if not self._input_number_entity_id or not self._sensor_entity_id:
+            slug_name = slugify(self._attr_name)
+            
+            if not self._input_number_entity_id:
+                self._input_number_entity_id = f"input_number.consigne_{slug_name}"
+                _LOGGER.debug(f"{self._attr_name}: Utilisation Input par défaut -> {self._input_number_entity_id}")
+                
+            if not self._sensor_entity_id:
+                self._sensor_entity_id = f"sensor.temperature_{slug_name}_temperature"
+                _LOGGER.debug(f"{self._attr_name}: Utilisation Sonde par défaut -> {self._sensor_entity_id}")
+
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_preset_mode = PRESET_NONE
         self._attr_target_temperature = 19
@@ -117,8 +113,6 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        
-        # Abonnement dynamique si configuré
         entities_to_watch = []
         if self._sensor_entity_id: entities_to_watch.append(self._sensor_entity_id)
         if self._input_number_entity_id: entities_to_watch.append(self._input_number_entity_id)
@@ -140,17 +134,15 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         if not self.hass: return
 
         if self._input_number_entity_id:
-            input_state = self.hass.states.get(self._input_number_entity_id)
-            if input_state and input_state.state not in ["unknown", "unavailable"]:
-                try:
-                    self._attr_target_temperature = float(input_state.state)
+            state = self.hass.states.get(self._input_number_entity_id)
+            if state and state.state not in ["unknown", "unavailable"]:
+                try: self._attr_target_temperature = float(state.state)
                 except ValueError: pass
 
         if self._sensor_entity_id:
-            sensor_state = self.hass.states.get(self._sensor_entity_id)
-            if sensor_state and sensor_state.state not in ["unknown", "unavailable"]:
-                try:
-                    self._attr_current_temperature = float(sensor_state.state)
+            state = self.hass.states.get(self._sensor_entity_id)
+            if state and state.state not in ["unknown", "unavailable"]:
+                try: self._attr_current_temperature = float(state.state)
                 except ValueError: pass
 
     @callback
@@ -217,8 +209,7 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             room_payload = {"id": self._room_id, "therm_setpoint_mode": mode_name}
             
             if mode_name == NETATMO_MODE_MANUAL:
-                if fp_val:
-                    room_payload["therm_setpoint_fp"] = fp_val
+                if fp_val: room_payload["therm_setpoint_fp"] = fp_val
                 room_payload["therm_setpoint_temperature"] = 19
                 room_payload["therm_setpoint_end_time"] = int(time.time() + DEFAULT_MANUAL_DURATION)
 
