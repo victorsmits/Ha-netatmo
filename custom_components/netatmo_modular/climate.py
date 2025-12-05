@@ -1,4 +1,4 @@
-"""Support Netatmo Fil Pilote - HomeKit Friendly (Cool = Eco)."""
+"""Support Netatmo Fil Pilote - CONFIGURABLE VIA UI."""
 import logging
 import time
 from datetime import timedelta
@@ -9,12 +9,16 @@ from homeassistant.components.climate import (
 from homeassistant.components.climate.const import (
     PRESET_AWAY, PRESET_ECO, PRESET_COMFORT, PRESET_NONE
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import (
+    UnitOfTemperature, 
+    ATTR_TEMPERATURE
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     DOMAIN, 
@@ -27,24 +31,25 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# --- MAPPING VALEURS ---
 NETATMO_VAL_COMFORT = "comfort"
-NETATMO_VAL_ECO_MAPPED = "away"        # Eco = away dans l'API Legrand
+NETATMO_VAL_ECO_MAPPED = "away"
 NETATMO_VAL_FROST_GUARD = "frost_guard"
-
 DEFAULT_MANUAL_DURATION = 43200 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     data_context = hass.data[DOMAIN][entry.entry_id]
     coordinator = data_context["coordinator"]
     data_handler = data_context["api"]
+    
+    # On récupère la configuration utilisateur (Options Flow)
+    rooms_config = entry.options.get("rooms_config", {})
 
     entities = []
     for home_id, home in coordinator.data.items():
         if not home.rooms: continue
         for room_id, room in home.rooms.items():
             if hasattr(room, "name"):
-                # Filtrage strict NLC
+                # Filtrage NLC
                 is_radiator = False
                 if hasattr(room, "modules") and room.modules:
                     for mod in room.modules.values():
@@ -53,7 +58,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                             break
                 
                 if is_radiator:
-                    entities.append(NetatmoRoomFilPilote(coordinator, home_id, room_id, data_handler))
+                    # On passe la config spécifique à cette pièce
+                    room_conf = rooms_config.get(room_id, {})
+                    entities.append(NetatmoRoomFilPilote(
+                        coordinator, home_id, room_id, data_handler, room_conf
+                    ))
             
     async_add_entities(entities)
 
@@ -61,22 +70,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     
-    # On garde les presets pour HA, mais on active aussi les modes ON/OFF pour HomeKit
     _attr_supported_features = (
         ClimateEntityFeature.TURN_ON | 
         ClimateEntityFeature.TURN_OFF | 
-        ClimateEntityFeature.PRESET_MODE
+        ClimateEntityFeature.PRESET_MODE |
+        ClimateEntityFeature.TARGET_TEMPERATURE
     )
     
-    # LISTE DES MODES : On inclut COOL pour le mapping Eco
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]
-    
-    # Les vrais presets pour l'affichage HA
     _attr_preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-    
     _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(self, coordinator, home_id, room_id, data_handler):
+    def __init__(self, coordinator, home_id, room_id, data_handler, config):
         super().__init__(coordinator)
         self._home_id = home_id
         self._room_id = room_id
@@ -85,9 +90,18 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{home_id}-{room_id}"
         self._attr_name = self.coordinator.data[home_id].rooms[room_id].name
         
-        # Init par défaut
+        # --- CONFIGURATION MANUELLE ---
+        self._input_number_entity_id = config.get("input_number_entity")
+        self._sensor_entity_id = config.get("sensor_entity")
+        
+        # Si pas configuré, on loggue un info (pas une erreur)
+        if not self._input_number_entity_id:
+            _LOGGER.debug(f"Pas de consigne configurée pour {self._attr_name}")
+        
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_preset_mode = PRESET_NONE
+        self._attr_target_temperature = 19
+        self._attr_current_temperature = None 
         
         self._update_attrs_from_coordinator()
 
@@ -101,58 +115,101 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             suggested_area=self._attr_name,
         )
 
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        
+        # Abonnement dynamique si configuré
+        entities_to_watch = []
+        if self._sensor_entity_id: entities_to_watch.append(self._sensor_entity_id)
+        if self._input_number_entity_id: entities_to_watch.append(self._input_number_entity_id)
+        
+        if entities_to_watch:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, entities_to_watch, self._on_external_update
+                )
+            )
+            self._read_external_entities()
+
+    @callback
+    def _on_external_update(self, event):
+        self._read_external_entities()
+        self.async_write_ha_state()
+
+    def _read_external_entities(self):
+        if not self.hass: return
+
+        if self._input_number_entity_id:
+            input_state = self.hass.states.get(self._input_number_entity_id)
+            if input_state and input_state.state not in ["unknown", "unavailable"]:
+                try:
+                    self._attr_target_temperature = float(input_state.state)
+                except ValueError: pass
+
+        if self._sensor_entity_id:
+            sensor_state = self.hass.states.get(self._sensor_entity_id)
+            if sensor_state and sensor_state.state not in ["unknown", "unavailable"]:
+                try:
+                    self._attr_current_temperature = float(sensor_state.state)
+                except ValueError: pass
+
     @callback
     def _handle_coordinator_update(self) -> None:
         self._update_attrs_from_coordinator()
         self.async_write_ha_state()
 
     def _update_attrs_from_coordinator(self):
-        """Traduction API Netatmo -> Modes HA Hybrides."""
         try:
             room = self.coordinator.data[self._home_id].rooms[self._room_id]
         except (KeyError, AttributeError):
             return
+        
+        self._read_external_entities()
 
         mode = getattr(room, "therm_setpoint_mode", NETATMO_MODE_SCHEDULE)
         fp_val = getattr(room, "therm_setpoint_fp", None)
 
-        # 1. MODE AUTO (Planning)
-        if mode == NETATMO_MODE_SCHEDULE or mode == "home":
-            self._attr_hvac_mode = HVACMode.AUTO
-            self._attr_preset_mode = PRESET_NONE
-        
-        # 2. MODE OFF (Vrai Off ou Hors-Gel global)
-        elif mode == NETATMO_MODE_OFF:
+        if mode == NETATMO_MODE_OFF:
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_preset_mode = PRESET_NONE
-            
+        elif mode == NETATMO_MODE_SCHEDULE or mode == "home":
+            self._attr_hvac_mode = HVACMode.AUTO
+            self._attr_preset_mode = PRESET_NONE
         elif mode == NETATMO_MODE_HG:
-            # Si toute la maison est HG, on l'affiche comme OFF pour simplifier
-            # Ou comme HEAT + Away selon ta préférence. Ici OFF pour cohérence HomeKit.
-            self._attr_hvac_mode = HVACMode.OFF 
+            self._attr_hvac_mode = HVACMode.OFF
             self._attr_preset_mode = PRESET_AWAY
-
-        # 3. MODE MANUEL (Gestion du Hack Cool)
-        elif mode == NETATMO_MODE_MANUAL or mode == NETATMO_MODE_AWAY:
-            
-            if fp_val == NETATMO_VAL_ECO_MAPPED or mode == NETATMO_MODE_AWAY:
-                # C'est du ECO -> On active le mode COOL (Bleu)
+        elif mode == NETATMO_MODE_AWAY:
+            self._attr_hvac_mode = HVACMode.COOL
+            self._attr_preset_mode = PRESET_ECO
+        elif mode == NETATMO_MODE_MANUAL:
+            if fp_val == NETATMO_VAL_ECO_MAPPED:
                 self._attr_hvac_mode = HVACMode.COOL
                 self._attr_preset_mode = PRESET_ECO
-                
             elif fp_val == NETATMO_VAL_FROST_GUARD:
-                # C'est du Hors-Gel -> On active le mode OFF (Gris)
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_preset_mode = PRESET_AWAY
-                
             else:
-                # C'est du Confort -> On active le mode HEAT (Orange)
                 self._attr_hvac_mode = HVACMode.HEAT
                 self._attr_preset_mode = PRESET_COMFORT
-        
         else:
             self._attr_hvac_mode = HVACMode.AUTO
             self._attr_preset_mode = PRESET_NONE
+
+    async def async_set_temperature(self, **kwargs) -> None:
+        target_temp = kwargs.get(ATTR_TEMPERATURE)
+        if target_temp is None or not self._input_number_entity_id: return
+
+        self._attr_target_temperature = target_temp
+        self.async_write_ha_state()
+
+        try:
+            await self.hass.services.async_call(
+                "input_number", "set_value",
+                {"entity_id": self._input_number_entity_id, "value": target_temp},
+                blocking=False
+            )
+        except Exception as e:
+            _LOGGER.error(f"Erreur update input_number: {e}")
 
     async def _async_push_pyatmo(self, mode_name, fp_val=None):
         try:
@@ -162,7 +219,6 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             if mode_name == NETATMO_MODE_MANUAL:
                 if fp_val:
                     room_payload["therm_setpoint_fp"] = fp_val
-                # Température fictive pour validation API
                 room_payload["therm_setpoint_temperature"] = 19
                 room_payload["therm_setpoint_end_time"] = int(time.time() + DEFAULT_MANUAL_DURATION)
 
@@ -174,44 +230,31 @@ class NetatmoRoomFilPilote(CoordinatorEntity, ClimateEntity):
             await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Pilotage via Modes (Compatible HomeKit)."""
         self._attr_hvac_mode = hvac_mode
+        if hvac_mode != HVACMode.HEAT and hvac_mode != HVACMode.COOL:
+             self._attr_preset_mode = PRESET_NONE
         self.async_write_ha_state()
 
         if hvac_mode == HVACMode.OFF:
-            # Bouton "Eteindre" HomeKit -> Envoie Hors-Gel (Sécurité)
             self._attr_preset_mode = PRESET_AWAY
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_FROST_GUARD)
-            
         elif hvac_mode == HVACMode.AUTO:
-            # Bouton "Auto" HomeKit -> Envoie Planning
             self._attr_preset_mode = PRESET_NONE
             await self._async_push_pyatmo("home")
-            
         elif hvac_mode == HVACMode.HEAT:
-            # Bouton "Chauffage" HomeKit -> Envoie Confort
             self._attr_preset_mode = PRESET_COMFORT
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_COMFORT)
-            
         elif hvac_mode == HVACMode.COOL:
-            # Bouton "Clim" HomeKit -> Envoie ECO
+            self._attr_hvac_mode = HVACMode.HEAT
             self._attr_preset_mode = PRESET_ECO
             await self._async_push_pyatmo(NETATMO_MODE_MANUAL, NETATMO_VAL_ECO_MAPPED)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Pilotage via Presets (Dashboard HA)."""
         self._attr_preset_mode = preset_mode
-        
-        # On met à jour le mode HVAC correspondant pour rester cohérent
-        if preset_mode == PRESET_ECO:
-            self._attr_hvac_mode = HVACMode.COOL
-        elif preset_mode == PRESET_AWAY:
-            self._attr_hvac_mode = HVACMode.OFF
-        elif preset_mode == PRESET_NONE:
-            self._attr_hvac_mode = HVACMode.AUTO
-        else:
-            self._attr_hvac_mode = HVACMode.HEAT
-            
+        if preset_mode == PRESET_ECO: self._attr_hvac_mode = HVACMode.COOL
+        elif preset_mode == PRESET_AWAY: self._attr_hvac_mode = HVACMode.OFF
+        elif preset_mode == PRESET_NONE: self._attr_hvac_mode = HVACMode.AUTO
+        else: self._attr_hvac_mode = HVACMode.HEAT
         self.async_write_ha_state()
 
         if preset_mode == PRESET_NONE:
