@@ -19,7 +19,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 # Types reconnus
-LIGHT_TYPES = ["NLF", "NLFN", "NLFE", "NLV", "NLL", "NLUP", "NLO", "Dimmer", "Switch"]
+LIGHT_TYPES = ["NLF","NLM", "NLFN", "NLFE", "NLV", "NLL", "NLUP", "NLO", "Dimmer", "Switch"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     data_context = hass.data[DOMAIN][entry.entry_id]
