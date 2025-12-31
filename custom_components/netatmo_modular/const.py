@@ -1,7 +1,7 @@
 from homeassistant.const import Platform
 
 DOMAIN = "netatmo_modular"
-PLATFORMS = [Platform.CLIMATE, Platform.LIGHT]
+PLATFORMS = [Platform.CLIMATE, Platform.LIGHT, Platform.SWITCH]
 
 CONF_URL = "url"
 OAUTH2_AUTHORIZE = "https://api.netatmo.com/oauth2/authorize"
